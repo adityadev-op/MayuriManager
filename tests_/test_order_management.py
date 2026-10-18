@@ -21,6 +21,7 @@ class OrderManagementWidgetTests(unittest.TestCase):
         self.admin_calls = []
         self.widget = OrderManagementWidget(
             lambda: self.dashboard_calls.append(True),
+            lambda: self.dashboard_calls.append("seats"),
             lambda: self.admin_calls.append(True),
         )
 
@@ -100,8 +101,9 @@ class OrderManagementWidgetTests(unittest.TestCase):
         self.assertIn("2 × Tea", show_details.call_args.args[2])
 
         self.widget.dashboard_button.click()
+        self.widget.tables_button.click()
         self.widget.admin_button.click()
-        self.assertEqual(self.dashboard_calls, [True])
+        self.assertEqual(self.dashboard_calls, [True, "seats"])
         self.assertEqual(self.admin_calls, [True])
 
     def test_empty_database_result_shows_honest_empty_state(self):

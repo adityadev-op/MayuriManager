@@ -19,9 +19,10 @@ from Receptionist.orders import get_active_orders
 
 
 class OrderManagementWidget(QWidget):
-    def __init__(self, on_dashboard, on_admin, parent=None):
+    def __init__(self, on_dashboard, on_tables, on_admin, parent=None):
         super().__init__(parent)
         self.on_dashboard = on_dashboard
+        self.on_tables = on_tables
         self.on_admin = on_admin
         self.orders = []
         self.load_error = None
@@ -60,11 +61,15 @@ class OrderManagementWidget(QWidget):
         self.dashboard_button.clicked.connect(self.on_dashboard)
         self.orders_label = QLabel("Live orders")
         self.orders_label.setObjectName("employeeNavActive")
+        self.tables_button = PremiumButton("Seat management")
+        self.tables_button.setObjectName("textButton")
+        self.tables_button.clicked.connect(self.on_tables)
         self.admin_button = PremiumButton("Admin console")
         self.admin_button.setObjectName("textButton")
         self.admin_button.clicked.connect(self.on_admin)
         navigation.addWidget(self.dashboard_button)
         navigation.addWidget(self.orders_label)
+        navigation.addWidget(self.tables_button)
         navigation.addWidget(self.admin_button)
         navigation.addStretch()
         layout.addLayout(navigation)

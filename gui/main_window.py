@@ -21,6 +21,7 @@ from Database_ import connection
 from gui.admin import AdminWidget
 from gui.booking import BookingWidget
 from gui.order_management import OrderManagementWidget
+from gui.table_management import TableManagementWidget
 from gui.widgets import PremiumButton
 from Receptionist.orders import get_employee_dashboard_stats
 
@@ -49,7 +50,14 @@ class MainWindow(QMainWindow):
         self.booking_page = self._build_booking_page()
         self.order_management_page = OrderManagementWidget(
             self._open_employee_workspace,
+            self._open_table_management,
             self._open_admin_workspace,
+        )
+        self.table_management_page = TableManagementWidget(
+            self._open_employee_workspace,
+            self._open_order_management,
+            self._open_admin_workspace,
+            self._on_tables_updated,
         )
         self.admin_page = self._build_admin_page()
 
@@ -59,6 +67,7 @@ class MainWindow(QMainWindow):
             self.employee_page,
             self.booking_page,
             self.order_management_page,
+            self.table_management_page,
             self.admin_page,
         ):
             self.stack.addWidget(page)
@@ -352,6 +361,10 @@ class MainWindow(QMainWindow):
         orders_button.setObjectName("employeeNavButton")
         orders_button.clicked.connect(self._open_order_management)
         nav_layout.addWidget(orders_button)
+        tables_button = PremiumButton("Seat management")
+        tables_button.setObjectName("employeeNavButton")
+        tables_button.clicked.connect(self._open_table_management)
+        nav_layout.addWidget(tables_button)
         admin_button = PremiumButton("Admin console")
         admin_button.setObjectName("employeeNavButton")
         admin_button.clicked.connect(self._open_admin_workspace)
@@ -596,6 +609,14 @@ class MainWindow(QMainWindow):
         self.order_management_page.refresh_orders()
         self._show_page(self.order_management_page)
 
+    def _open_table_management(self):
+        self.table_management_page.refresh_tables()
+        self._show_page(self.table_management_page)
+
+    def _on_tables_updated(self):
+        self._refresh_employee_stats()
+        self.order_management_page.refresh_orders()
+
     def _refresh_employee_stats(self):
         try:
             stats = get_employee_dashboard_stats()
@@ -685,6 +706,8 @@ class MainWindow(QMainWindow):
             self._refresh_employee_stats()
         elif self.stack.currentWidget() is self.order_management_page:
             self.order_management_page.refresh_orders()
+        elif self.stack.currentWidget() is self.table_management_page:
+            self.table_management_page.refresh_tables()
 
     def _open_admin_workspace(self):
         admin_password = os.environ.get("MAYURICAFE_ADMIN_PASSWORD")
@@ -869,6 +892,11 @@ class MainWindow(QMainWindow):
                     stop:0 {colors['surface']}, stop:1 {colors['surface_alt']});
                 border-radius: 21px;
             }}
+            QFrame#seatRow {{
+                background: {colors['surface_alt']};
+                border: 1px solid {colors['border']};
+                border-radius: 14px;
+            }}
             QProgressBar#adminPerformanceBar {{
                 border: none;
                 border-radius: 3px;
@@ -1036,6 +1064,17 @@ class MainWindow(QMainWindow):
             }}
             QLabel#adminPerformanceName {{ font-size: 11px; font-weight: 750; }}
             QLabel#adminPerformanceTotals {{ color: {colors['welcome_muted']}; font-size: 10px; font-weight: 700; }}
+            QLabel#seatRowTitle {{ color: {colors['text']}; font-size: 13px; font-weight: 750; }}
+            QLabel#seatStatusBadge {{
+                background: {colors['accent_soft']};
+                color: {colors['accent_deep']};
+                border-radius: 9px;
+                padding: 5px 8px;
+                font-size: 10px;
+                font-weight: 750;
+            }}
+            QLabel#seatStatusBadge[state="available"] {{ background: #e7f3eb; color: #397354; }}
+            QLabel#seatStatusBadge[state="other"] {{ background: {colors['surface']}; color: {colors['muted']}; }}
             QLabel#eyebrow, QLabel#statLabel, QLabel#fieldLabel {{
                 color: {colors['accent']};
                 font-size: 10px;
@@ -1269,6 +1308,17 @@ class MainWindow(QMainWindow):
             QPushButton#employeeBookingButton:pressed {{
                 background: {colors['accent_deep']};
                 padding-top: 2px;
+            }}
+            QPushButton#seatVacateButton {{
+                background: {colors['surface']};
+                color: {colors['accent_deep']};
+                border: 1px solid {colors['border']};
+                border-radius: 10px;
+            }}
+            QPushButton#seatVacateButton:hover {{
+                background: {colors['accent_soft']};
+                border-color: {colors['accent_deep']};
+                color: {colors['accent_deep']};
             }}
             QPushButton#secondaryButton, QPushButton#themeButton {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
