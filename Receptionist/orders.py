@@ -2,6 +2,43 @@
 from Database_.connection import get_connection
 
 
+def get_employee_dashboard_stats():
+    """Return today's order count, available table count and open order count."""
+    connection = get_connection()
+    cursor = None
+    try:
+        connection.commit()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)
+                    FROM orders
+                    WHERE DATE(order_date) = CURRENT_DATE()
+                ) AS todays_bookings,
+                (
+                    SELECT COUNT(*)
+                    FROM cafe_tables
+                    WHERE table_status = 'available'
+                ) AS available_tables,
+                (
+                    SELECT COUNT(*)
+                    FROM orders
+                    WHERE order_status NOT IN ('completed', 'cancelled')
+                ) AS open_orders
+            """
+        )
+        stats = cursor.fetchone()
+        connection.commit()
+        if stats is None:
+            raise RuntimeError("Could not load employee workspace statistics.")
+        return stats
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+
 def get_available_cafe_tables():
     """Return available café tables for dine-in orders."""
     connection = get_connection()
@@ -16,10 +53,11 @@ def get_available_cafe_tables():
             ORDER BY table_number
             """
         )
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        connection.commit()
+        return rows
     finally:
         cursor.close()
-        connection.close()
 
 
 def get_active_employees():
@@ -36,10 +74,11 @@ def get_active_employees():
             ORDER BY employee_id
             """,
         )
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        connection.commit()
+        return rows
     finally:
         cursor.close()
-        connection.close()
 
 
 def get_available_menu_items():
@@ -57,11 +96,12 @@ def get_available_menu_items():
         """
 
         cursor.execute(query)
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        connection.commit()
+        return rows
 
     finally:
         cursor.close()
-        connection.close()
 
 
 def save_order(customer, employee_id, order_type, cart, payment_method, table_id=None):
@@ -178,7 +218,6 @@ def save_order(customer, employee_id, order_type, cart, payment_method, table_id
     finally:
         if cursor is not None:
             cursor.close()
-        connection.close()
 
 
 def display_menu(menu_items):

@@ -1,9 +1,19 @@
 import getpass
+from collections.abc import Callable
+
 import mysql.connector
 from mysql.connector import Error
 
 
 _database_password = None
+_password_prompt = getpass.getpass
+_database_connection = None
+
+
+def set_password_prompt(prompt: Callable[[str], str]) -> None:
+    """Set the password prompt used for future database connections."""
+    global _password_prompt
+    _password_prompt = prompt
 
 
 def connect_to_database():
@@ -13,7 +23,7 @@ def connect_to_database():
         password = _database_password
 
         if password is None:
-            password = getpass.getpass("MySQL password for aditya: ")
+            password = _password_prompt("MySQL password for aditya: ")
 
         connection = mysql.connector.connect(
             host="localhost",
@@ -32,6 +42,7 @@ def connect_to_database():
             print("Selected database:", cursor.fetchone()[0])
 
             cursor.close()
+            connection.commit()
             return connection
 
     except Error as error:
@@ -41,10 +52,32 @@ def connect_to_database():
 
 
 def get_connection():
-    """Return a database connection or raise if the connection failed."""
+    """Return the application's reusable connection to the cafe database."""
+    global _database_connection
+
+    if _database_connection is not None:
+        try:
+            _database_connection.ping(reconnect=True, attempts=1, delay=0)
+            if _database_connection.is_connected():
+                return _database_connection
+        except Error:
+            _database_connection = None
+
     connection = connect_to_database()
 
     if connection is None:
         raise ConnectionError("Unable to connect to the MAYURICAFE database.")
 
-    return connection
+    _database_connection = connection
+    return _database_connection
+
+
+def close_database_connection():
+    """Close the reusable application connection during orderly shutdown."""
+    global _database_connection, _database_password
+
+    connection = _database_connection
+    _database_connection = None
+    _database_password = None
+    if connection is not None and connection.is_connected():
+        connection.close()

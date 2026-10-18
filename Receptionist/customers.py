@@ -19,11 +19,11 @@ def get_customer_by_phone(phone):
         cursor.execute(query, (phone,))
         customer = cursor.fetchone()
 
+        connection.commit()
         return customer
 
     finally:
         cursor.close()
-        connection.close()
 
 
 def add_customer(customer_name, phone, email):
@@ -60,7 +60,6 @@ def add_customer(customer_name, phone, email):
 
     finally:
         cursor.close()
-        connection.close()
 
 
 def get_customer_or_registration_details(phone):

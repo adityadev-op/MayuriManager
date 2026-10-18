@@ -6,11 +6,21 @@ from Receptionist import cli, customers, orders
 
 
 class ReceptionistFlowTests(unittest.TestCase):
-    def test_app_delegates_to_receptionist_cli(self):
-        with patch.object(cli, "run_receptionist") as run_receptionist:
-            runpy.run_module("app", run_name="__main__")
+    def test_app_launches_gui(self):
+        with (
+            patch("PySide6.QtWidgets.QApplication") as application_class,
+            patch("gui.main_window.MainWindow") as window_class,
+        ):
+            application = application_class.return_value
+            application.exec.return_value = 0
+            with self.assertRaises(SystemExit) as exit_code:
+                runpy.run_module("app", run_name="__main__")
 
-        run_receptionist.assert_called_once_with()
+        self.assertEqual(exit_code.exception.code, 0)
+        application_class.assert_called_once_with([])
+        application.setApplicationName.assert_called_once_with("MAYURICAFE")
+        window_class.return_value.show.assert_called_once_with()
+        application.exec.assert_called_once_with()
 
     def test_cli_runs_customer_order_and_billing_flow(self):
         customer = {"customer_id": 1, "customer_name": "Maya"}
@@ -180,7 +190,7 @@ class ReceptionistFlowTests(unittest.TestCase):
         self.assertEqual(payment_values, (42, "cash", 110, "completed"))
         connection.commit.assert_called_once_with()
         connection.rollback.assert_not_called()
-        connection.close.assert_called_once_with()
+        connection.close.assert_not_called()
 
     def test_dine_in_order_occupies_table_in_same_transaction(self):
         cursor = unittest.mock.Mock()
@@ -224,7 +234,7 @@ class ReceptionistFlowTests(unittest.TestCase):
 
         connection.rollback.assert_called_once_with()
         connection.commit.assert_not_called()
-        connection.close.assert_called_once_with()
+        connection.close.assert_not_called()
 
     def test_payment_insert_failure_rolls_back_entire_sale(self):
         cursor = unittest.mock.Mock()
