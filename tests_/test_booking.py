@@ -37,6 +37,7 @@ class BookingWidgetTests(unittest.TestCase):
             patch("gui.booking.get_available_cafe_tables", return_value=tables),
             patch("gui.booking.get_active_employees", return_value=employees),
             patch("gui.booking.save_order", return_value=42) as save_order,
+            patch("gui.booking.create_bill_pdf", return_value=None),
             patch("builtins.input", side_effect=AssertionError("terminal input used")),
         ):
             self.widget.order_completed.connect(completed_orders.append)

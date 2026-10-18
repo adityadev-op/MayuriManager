@@ -25,6 +25,7 @@ from Receptionist.orders import (
     get_available_menu_items,
     save_order,
 )
+from services.bill_pdf import create_bill_pdf
 from gui.widgets import PremiumButton
 
 
@@ -42,6 +43,8 @@ class BookingWidget(QWidget):
         self.employees = []
         self.order_type = None
         self.table_id = None
+        self.last_bill_pdf_path = None
+        self.bill_pdf_error = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
@@ -654,6 +657,34 @@ class BookingWidget(QWidget):
         except Exception as error:
             self._error("Could not save order", error)
             return
+
+        self.last_bill_pdf_path = None
+        self.bill_pdf_error = None
+        try:
+            selected_employee = next(
+                employee
+                for employee in self.employees
+                if employee["employee_id"] == self.employee_combo.currentData()
+            )
+            table_number = next(
+                (
+                    table["table_number"]
+                    for table in self.tables
+                    if table["table_id"] == self.table_id
+                ),
+                None,
+            )
+            self.last_bill_pdf_path = create_bill_pdf(
+                order_id,
+                self.customer,
+                selected_employee["employee_name"],
+                self.order_type,
+                table_number,
+                self.payment_method_combo.currentData(),
+                self.cart,
+            )
+        except Exception as error:
+            self.bill_pdf_error = str(error)
 
         self._reset()
         self.order_completed.emit(order_id)

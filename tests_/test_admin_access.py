@@ -69,41 +69,65 @@ class AdminAccessTests(unittest.TestCase):
     def test_application_loads_admin_password_from_local_environment_file(self):
         application = unittest.mock.Mock()
         window = unittest.mock.Mock()
+        splash = unittest.mock.Mock()
+        startup_events = []
+        finish_startup = []
+        splash.show.side_effect = lambda: startup_events.append("splash")
+        splash.logo_animation.finished.connect.side_effect = finish_startup.append
+        application.exec.side_effect = lambda: (
+            finish_startup[0](),
+            startup_events.append("homepage"),
+            0,
+        )[-1]
         with (
             patch.dict(os.environ),
             patch("app.QApplication", return_value=application),
             patch("app.MainWindow", return_value=window),
-            patch("app.connection.get_connection") as connect_database,
-            patch.object(application, "exec", return_value=0) as run_event_loop,
+            patch("app.StartupSplash", return_value=splash),
+            patch(
+                "app.connection.get_connection",
+                side_effect=lambda: startup_events.append("database"),
+            ) as connect_database,
         ):
             os.environ.pop("MAYURICAFE_ADMIN_PASSWORD", None)
             app.main()
             self.assertTrue(os.environ.get("MAYURICAFE_ADMIN_PASSWORD"))
 
         connect_database.assert_called_once_with()
+        splash.logo_animation.finished.connect.assert_called_once_with(
+            finish_startup[0]
+        )
+        self.assertEqual(
+            startup_events,
+            ["database", "splash", "homepage"],
+        )
         window.show.assert_called_once_with()
-        run_event_loop.assert_called_once_with()
+        splash.show.assert_called_once_with()
+        splash.close.assert_called_once_with()
+        application.exec.assert_called_once_with()
 
     def test_application_does_not_open_when_database_connection_fails(self):
         application = unittest.mock.Mock()
         window = unittest.mock.Mock()
+        splash = unittest.mock.Mock()
         with (
             patch("app.QApplication", return_value=application),
             patch("app.MainWindow", return_value=window),
+            patch("app.StartupSplash", return_value=splash),
             patch(
                 "app.connection.get_connection",
                 side_effect=ConnectionError("Unable to connect"),
             ) as connect_database,
             patch("app.QMessageBox.critical") as show_error,
-            patch.object(application, "exec", return_value=0) as run_event_loop,
         ):
             result = app.main()
 
         self.assertEqual(result, 1)
         connect_database.assert_called_once_with()
         show_error.assert_called_once()
+        splash.show.assert_not_called()
         window.show.assert_not_called()
-        run_event_loop.assert_not_called()
+        application.exec.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@ import os
 import secrets
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.branding import LOGO_PATH
 from Database_ import connection
 from gui.admin import AdminWidget
 from gui.booking import BookingWidget
@@ -36,6 +38,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 640)
 
         self.stack = QStackedWidget()
+        self._page_animation = None
+        self._welcome_typing_timer = QTimer(self)
+        self._welcome_typing_timer.setInterval(55)
+        self._welcome_typing_timer.timeout.connect(self._type_welcome_title)
+        self._welcome_title_text = "Welcome to MAYURICAFE"
+        self._welcome_title_index = 0
 
         shell = QWidget()
         shell.setObjectName("appShell")
@@ -87,10 +95,20 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        mark = QLabel("M")
-        mark.setObjectName("brandMark")
-        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setFixedSize(40, 40)
+        self.brand_logo = QLabel()
+        self.brand_logo.setObjectName("brandLogo")
+        self.brand_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brand_logo.setFixedSize(58, 58)
+        self.brand_logo.setAccessibleName("Mayuri Cafe logo")
+        self.brand_logo.setToolTip("Mayuri Cafe")
+        self.brand_logo.setPixmap(
+            QPixmap(str(LOGO_PATH)).scaled(
+                58,
+                58,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
         brand = QVBoxLayout()
         brand.setSpacing(0)
@@ -101,7 +119,7 @@ class MainWindow(QMainWindow):
         brand.addWidget(brand_name)
         brand.addWidget(brand_caption)
 
-        layout.addWidget(mark)
+        layout.addWidget(self.brand_logo)
         layout.addLayout(brand)
         layout.addStretch()
 
@@ -154,11 +172,14 @@ class MainWindow(QMainWindow):
         eyebrow = QLabel("REFINED CAFE MANAGEMENT")
         eyebrow.setObjectName("welcomeEyebrow")
         eyebrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title = QLabel("Welcome to MAYURICAFE")
+        title = QLabel(self._welcome_title_text)
         title.setObjectName("welcomeTitle")
         title.setWordWrap(True)
         title.setMinimumWidth(620)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setAccessibleName(self._welcome_title_text)
+        title.setText("")
+        self.welcome_title = title
         description = QLabel(
             "A thoughtful workspace for your cafe's daily rhythm. Manage bookings "
             "and live orders as an employee, or explore reports and performance "
@@ -760,11 +781,69 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Booking saved",
-            f"Order #{order_id} and its completed payment were saved.",
+            (
+                f"Order #{order_id} and its completed payment were saved.\n\n"
+                f"Bill PDF saved to:\n{self.booking_page.last_bill_pdf_path}"
+                if self.booking_page.last_bill_pdf_path is not None
+                else (
+                    f"Order #{order_id} and its completed payment were saved, "
+                    f"but its bill PDF could not be generated:\n"
+                    f"{self.booking_page.bill_pdf_error}"
+                )
+            ),
         )
 
     def _show_page(self, page):
+        previous_page = self.stack.currentWidget()
+        if self._page_animation is not None:
+            self._page_animation.stop()
+            if previous_page is not None:
+                previous_page.move(0, 0)
+            self._page_animation = None
+
+        if previous_page is page:
+            return
+
         self.stack.setCurrentWidget(page)
+        if page is self.home_page and self.isVisible():
+            self._start_welcome_typing()
+        if not self.isVisible() or self.stack.width() <= 0:
+            page.move(0, 0)
+            return
+
+        direction = 1
+        if previous_page is not None:
+            direction = 1 if self.stack.indexOf(page) > self.stack.indexOf(previous_page) else -1
+        start = QPoint(direction * self.stack.width() // 8, 0)
+        page.move(start)
+
+        animation = QPropertyAnimation(page, b"pos", self)
+        animation.setDuration(460)
+        animation.setStartValue(start)
+        animation.setEndValue(QPoint(0, 0))
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.finished.connect(lambda: page.move(0, 0))
+        self._page_animation = animation
+        animation.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.stack.currentWidget() is self.home_page:
+            self._start_welcome_typing()
+
+    def _start_welcome_typing(self):
+        self._welcome_typing_timer.stop()
+        self._welcome_title_index = 0
+        self.welcome_title.setText("")
+        self._welcome_typing_timer.start()
+
+    def _type_welcome_title(self):
+        self._welcome_title_index += 1
+        self.welcome_title.setText(
+            self._welcome_title_text[:self._welcome_title_index]
+        )
+        if self._welcome_title_index >= len(self._welcome_title_text):
+            self._welcome_typing_timer.stop()
 
     def _toggle_theme(self):
         self.is_dark = not self.is_dark
@@ -939,13 +1018,10 @@ class MainWindow(QMainWindow):
             QFrame#roleCard:hover, QFrame#statCard:hover {{
                 border-color: {colors['accent']};
             }}
-            QLabel#brandMark {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {colors['accent_hover']}, stop:1 {colors['accent_deep']});
-                color: #ffffff;
-                border-radius: 50%;
-                font-size: 20px;
-                font-weight: 800;
+            QLabel#brandLogo {{
+                background: {colors['welcome_card']};
+                border: 1px solid {colors['welcome_gold']};
+                border-radius: 14px;
             }}
             QLabel#brandName {{ font-size: 14px; font-weight: 800; letter-spacing: 1.4px; }}
             QLabel#brandCaption {{ color: {colors['muted']}; font-size: 9px; letter-spacing: 1.4px; }}
