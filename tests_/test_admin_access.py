@@ -73,13 +73,37 @@ class AdminAccessTests(unittest.TestCase):
             patch.dict(os.environ),
             patch("app.QApplication", return_value=application),
             patch("app.MainWindow", return_value=window),
-            patch.object(application, "exec", return_value=0),
+            patch("app.connection.get_connection") as connect_database,
+            patch.object(application, "exec", return_value=0) as run_event_loop,
         ):
             os.environ.pop("MAYURICAFE_ADMIN_PASSWORD", None)
             app.main()
             self.assertTrue(os.environ.get("MAYURICAFE_ADMIN_PASSWORD"))
 
+        connect_database.assert_called_once_with()
         window.show.assert_called_once_with()
+        run_event_loop.assert_called_once_with()
+
+    def test_application_does_not_open_when_database_connection_fails(self):
+        application = unittest.mock.Mock()
+        window = unittest.mock.Mock()
+        with (
+            patch("app.QApplication", return_value=application),
+            patch("app.MainWindow", return_value=window),
+            patch(
+                "app.connection.get_connection",
+                side_effect=ConnectionError("Unable to connect"),
+            ) as connect_database,
+            patch("app.QMessageBox.critical") as show_error,
+            patch.object(application, "exec", return_value=0) as run_event_loop,
+        ):
+            result = app.main()
+
+        self.assertEqual(result, 1)
+        connect_database.assert_called_once_with()
+        show_error.assert_called_once()
+        window.show.assert_not_called()
+        run_event_loop.assert_not_called()
 
 
 if __name__ == "__main__":

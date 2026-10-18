@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from dotenv import load_dotenv
 
 from Database_ import connection
@@ -14,6 +14,16 @@ def main():
     app.aboutToQuit.connect(connection.close_database_connection)
 
     window = MainWindow()
+    try:
+        connection.get_connection()
+    except ConnectionError as error:
+        QMessageBox.critical(
+            window,
+            "Database connection failed",
+            f"Could not connect to the MAYURICAFE database: {error}",
+        )
+        return 1
+
     window.show()
 
     return app.exec()

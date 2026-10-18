@@ -10,6 +10,7 @@ class ReceptionistFlowTests(unittest.TestCase):
         with (
             patch("PySide6.QtWidgets.QApplication") as application_class,
             patch("gui.main_window.MainWindow") as window_class,
+            patch("Database_.connection.get_connection") as connect_database,
         ):
             application = application_class.return_value
             application.exec.return_value = 0
@@ -19,6 +20,7 @@ class ReceptionistFlowTests(unittest.TestCase):
         self.assertEqual(exit_code.exception.code, 0)
         application_class.assert_called_once_with([])
         application.setApplicationName.assert_called_once_with("MAYURICAFE")
+        connect_database.assert_called_once_with()
         window_class.return_value.show.assert_called_once_with()
         application.exec.assert_called_once_with()
 
