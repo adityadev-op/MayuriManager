@@ -6,6 +6,57 @@ from Receptionist import cli, customers, orders
 
 
 class ReceptionistFlowTests(unittest.TestCase):
+    def test_get_active_orders_groups_items_and_excludes_closed_orders(self):
+        rows = [
+            {
+                "order_id": 42,
+                "order_date": None,
+                "order_status": "pending",
+                "order_type": "takeaway",
+                "total_amount": 110,
+                "customer_name": "Maya",
+                "customer_phone": "9876543210",
+                "employee_name": "Aarav",
+                "table_number": None,
+                "item_name": "Tea",
+                "quantity": 2,
+                "unit_price": 30,
+            },
+            {
+                "order_id": 42,
+                "order_date": None,
+                "order_status": "pending",
+                "order_type": "takeaway",
+                "total_amount": 110,
+                "customer_name": "Maya",
+                "customer_phone": "9876543210",
+                "employee_name": "Aarav",
+                "table_number": None,
+                "item_name": "Cake",
+                "quantity": 1,
+                "unit_price": 50,
+            },
+        ]
+        cursor = unittest.mock.Mock()
+        cursor.fetchall.return_value = rows
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with patch.object(orders, "get_connection", return_value=database):
+            active_orders = orders.get_active_orders()
+
+        query = cursor.execute.call_args.args[0]
+        self.assertIn("order_status NOT IN ('completed', 'cancelled')", query)
+        self.assertIn("LEFT JOIN order_items AS oi", query)
+        self.assertEqual(len(active_orders), 1)
+        self.assertEqual(active_orders[0]["order_id"], 42)
+        self.assertEqual(
+            [item["item_name"] for item in active_orders[0]["items"]],
+            ["Tea", "Cake"],
+        )
+        self.assertEqual(database.commit.call_count, 2)
+        cursor.close.assert_called_once_with()
+
     def test_app_launches_gui(self):
         with (
             patch("PySide6.QtWidgets.QApplication") as application_class,

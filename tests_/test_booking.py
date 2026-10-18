@@ -96,6 +96,31 @@ class BookingWidgetTests(unittest.TestCase):
         )
         self.assertEqual(self.widget.stage_stack.currentIndex(), 1)
 
+    def test_stepper_and_order_summary_track_current_booking(self):
+        self.widget.customer = {"customer_name": "Maya"}
+        self.widget.cart = [
+            {"item_id": 3, "item_name": "Masala Tea", "price": 30, "quantity": 2}
+        ]
+        self.widget.order_type_combo.setCurrentIndex(2)
+        self.widget._show_stage(2)
+
+        self.assertEqual(self.widget.step_progress.value(), 3)
+        self.assertEqual(self.widget.summary_guest.text(), "Maya")
+        self.assertEqual(self.widget.summary_items.text(), "2 items")
+        self.assertEqual(self.widget.summary_service.text(), "Takeaway")
+        self.assertEqual(self.widget.summary_total.text(), "₹60.00")
+        self.assertEqual(self.widget.step_labels[2].property("active"), True)
+        self.assertEqual(self.widget.step_labels[1].property("complete"), True)
+
+    def test_order_summary_updates_when_guest_identity_changes(self):
+        self.widget.customer = {"customer_name": "Maya"}
+        self.widget._refresh_order_summary()
+        self.assertEqual(self.widget.summary_guest.text(), "Maya")
+
+        self.widget._invalidate_customer()
+
+        self.assertEqual(self.widget.summary_guest.text(), "Not selected")
+
     def test_unpaid_order_cancels_without_saving(self):
         cancelled = []
         self.widget.customer = {"customer_id": 7}

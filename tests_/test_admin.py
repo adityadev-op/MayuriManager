@@ -129,6 +129,32 @@ class AdminServiceTests(unittest.TestCase):
         query, values = self.cursor.execute.call_args.args
         self.assertIn("COUNT(DISTINCT o.order_id)", query)
         self.assertIn("LEFT JOIN orders", query)
+        self.assertIn("o.order_status != 'cancelled'", query)
+        self.assertEqual(values, (start_date, end_date))
+        self.assertEqual(result, report)
+
+    def test_category_sales_report_aggregates_quantities_and_order_value(self):
+        report = [
+            {
+                "category_name": "Drinks",
+                "items_sold": 4,
+                "category_revenue": 120,
+            }
+        ]
+        self.cursor.fetchall.return_value = report
+        start_date = date(2026, 10, 1)
+        end_date = date(2026, 10, 18)
+
+        with patch.object(
+            admin_service, "get_connection", return_value=self.connection
+        ):
+            result = admin_service.get_category_sales(start_date, end_date)
+
+        query, values = self.cursor.execute.call_args.args
+        self.assertIn("SUM(oi.quantity)", query)
+        self.assertIn("SUM(oi.quantity * oi.unit_price)", query)
+        self.assertIn("LEFT JOIN categories AS c", query)
+        self.assertIn("o.order_status != 'cancelled'", query)
         self.assertEqual(values, (start_date, end_date))
         self.assertEqual(result, report)
 
@@ -297,18 +323,115 @@ class AdminWidgetTests(unittest.TestCase):
             self.widget.revenue_table.item(0, 2).text(),
             "₹350.00",
         )
+        self.assertEqual(
+            self.widget.revenue_view.currentWidget(),
+            self.widget.revenue_table,
+        )
+        self.assertEqual(
+            self.widget.revenue_chart._points,
+            [(date(2026, 10, 18), 350.0)],
+        )
+
+    def test_admin_dashboard_uses_live_range_data_for_kpis_categories_and_staff(self):
+        revenue_rows = [
+            {"revenue_date": date(2026, 10, 18), "bill_count": 2, "revenue": 350},
+            {"revenue_date": date(2026, 10, 17), "bill_count": 1, "revenue": 150},
+        ]
+        category_rows = [
+            {
+                "category_name": "Drinks",
+                "items_sold": 4,
+                "category_revenue": 300,
+            },
+            {
+                "category_name": "Pastries",
+                "items_sold": 2,
+                "category_revenue": 200,
+            },
+        ]
+        employee_rows = [
+            {
+                "employee_id": 12,
+                "employee_name": "Aarav",
+                "bill_count": 2,
+                "total_billed": 350,
+            },
+            {
+                "employee_id": 13,
+                "employee_name": "Maya",
+                "bill_count": 1,
+                "total_billed": 150,
+            },
+        ]
+
+        with (
+            patch(
+                "gui.admin.admin_service.get_revenue_by_day",
+                return_value=revenue_rows,
+            ) as get_revenue,
+            patch(
+                "gui.admin.admin_service.get_category_sales",
+                return_value=category_rows,
+            ) as get_categories,
+            patch(
+                "gui.admin.admin_service.get_employee_bill_counts",
+                return_value=employee_rows,
+            ) as get_employees,
+        ):
+            self.widget.dashboard_range.setCurrentIndex(1)
+
+        expected_dates = (
+            self.widget.dashboard_start.date().toPython(),
+            self.widget.dashboard_end.date().toPython(),
+        )
+        get_revenue.assert_called_once_with(*expected_dates)
+        get_categories.assert_called_once_with(*expected_dates)
+        get_employees.assert_called_once_with(*expected_dates)
+        self.assertEqual(
+            self.widget.dashboard_metric_values["revenue"].text(),
+            "₹500.00",
+        )
+        self.assertEqual(
+            self.widget.dashboard_metric_values["orders"].text(),
+            "3",
+        )
+        self.assertEqual(
+            self.widget.dashboard_metric_values["average"].text(),
+            "₹166.67",
+        )
+        self.assertEqual(self.widget.dashboard_category_table.rowCount(), 2)
+        self.assertEqual(
+            self.widget.dashboard_category_table.item(0, 3).text(),
+            "60.0%",
+        )
+        self.assertEqual(self.widget.dashboard_employee_rows.count(), 2)
+
+    def test_empty_revenue_report_has_a_clear_empty_state(self):
+        with patch("gui.admin.admin_service.get_revenue_by_day", return_value=[]):
+            self.widget.load_revenue_report()
+
+        self.assertEqual(self.widget.revenue_table.rowCount(), 0)
+        self.assertEqual(
+            self.widget.revenue_view.currentWidget(),
+            self.widget.revenue_empty,
+        )
+        self.assertIn("No completed payments", self.widget.revenue_empty.text())
+        self.assertEqual(self.widget.revenue_chart._points, [])
 
     def test_manual_report_refresh_dispatches_for_selected_report(self):
         with (
+            patch.object(self.widget, "load_dashboard") as load_dashboard,
             patch.object(self.widget, "load_sales_details") as load_details,
             patch.object(self.widget, "load_revenue_report") as load_revenue,
         ):
-            self.widget.tabs.setCurrentIndex(2)
+            self.widget.refresh_sales_reports()
+            load_dashboard.assert_called_once_with()
+            self.widget.tabs.setCurrentIndex(3)
             load_details.assert_called_once_with()
             load_details.reset_mock()
             self.widget.refresh_sales_reports()
             load_details.assert_called_once_with()
-            self.widget.tabs.setCurrentIndex(3)
+            self.widget.tabs.setCurrentIndex(4)
             load_revenue.assert_called_once_with()
             load_revenue.reset_mock()
             self.widget.refresh_sales_reports()

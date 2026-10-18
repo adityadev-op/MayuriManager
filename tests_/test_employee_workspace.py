@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from Receptionist import orders
@@ -53,6 +54,7 @@ class EmployeeWorkspaceTests(unittest.TestCase):
             window = MainWindow()
             window._open_employee_workspace()
 
+        QTest.qWait(350)
         fetch_stats.assert_called_once_with()
         self.assertEqual(
             {
@@ -65,7 +67,7 @@ class EmployeeWorkspaceTests(unittest.TestCase):
                 "open_orders": "3",
             },
         )
-        self.assertIn("refreshed", window.employee_status.text())
+        self.assertIn("Updated", window.employee_status.text())
 
     def test_failed_stats_refresh_shows_error_and_clears_stale_values(self):
         with patch("gui.main_window.connection.set_password_prompt"):
@@ -86,6 +88,36 @@ class EmployeeWorkspaceTests(unittest.TestCase):
             )
         )
         self.assertIn("database unavailable", window.employee_status.text())
+        self.assertEqual(window.employee_live_badge.property("state"), "error")
+        self.assertTrue(
+            all(
+                badge.text() == "UNAVAILABLE"
+                for badge in window.employee_stat_badges.values()
+            )
+        )
+
+    def test_employee_dashboard_uses_real_counts_and_existing_actions(self):
+        with patch("gui.main_window.connection.set_password_prompt"):
+            window = MainWindow()
+
+        self.assertEqual(window.employee_live_badge.property("state"), "waiting")
+        self.assertEqual(
+            [badge.text() for badge in window.employee_stat_badges.values()],
+            ["WAITING", "WAITING", "WAITING"],
+        )
+        self.assertEqual(window.employee_refresh_button.text(), "Refresh data")
+        self.assertIn(
+            "Start a new booking",
+            [label.text() for label in window.employee_page.findChildren(type(window.employee_status))],
+        )
+        page_text = " ".join(
+            label.text() for label in window.employee_page.findChildren(type(window.employee_status))
+        )
+        self.assertIn("Today's service", page_text)
+        self.assertIn("Guest", page_text)
+        self.assertIn("Payment", page_text)
+        self.assertNotIn("Kitchen Display connected", page_text)
+        window.close()
 
     def test_periodic_refresh_only_queries_while_employee_workspace_is_open(self):
         with (

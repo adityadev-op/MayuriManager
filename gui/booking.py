@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
+    QProgressBar,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -25,6 +25,7 @@ from Receptionist.orders import (
     get_available_menu_items,
     save_order,
 )
+from gui.widgets import PremiumButton
 
 
 class BookingWidget(QWidget):
@@ -55,6 +56,36 @@ class BookingWidget(QWidget):
         heading.addWidget(title)
         heading.addWidget(subtitle)
         layout.addLayout(heading)
+
+        self.step_labels = []
+        step_row = QHBoxLayout()
+        step_row.setSpacing(8)
+        for index, label in enumerate(("GUEST", "ORDER", "SERVICE", "TEAM", "PAYMENT")):
+            step_label = QLabel(f"{index + 1:02d}  {label}")
+            step_label.setObjectName("bookingStep")
+            step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.step_labels.append(step_label)
+            step_row.addWidget(step_label, 1)
+        layout.addLayout(step_row)
+
+        self.step_progress = QProgressBar()
+        self.step_progress.setObjectName("bookingProgress")
+        self.step_progress.setRange(0, 5)
+        self.step_progress.setTextVisible(False)
+        self.step_progress.setFixedHeight(5)
+        self.step_progress.setAccessibleName("Booking progress")
+        layout.addWidget(self.step_progress)
+
+        self.summary_card = QFrame()
+        self.summary_card.setObjectName("bookingSummary")
+        summary_layout = QHBoxLayout(self.summary_card)
+        summary_layout.setContentsMargins(18, 10, 18, 10)
+        summary_layout.setSpacing(18)
+        self.summary_guest = self._summary_value(summary_layout, "GUEST", "Not selected")
+        self.summary_items = self._summary_value(summary_layout, "ORDER", "0 items")
+        self.summary_service = self._summary_value(summary_layout, "SERVICE", "Not selected")
+        self.summary_total = self._summary_value(summary_layout, "TOTAL", "₹0.00")
+        layout.addWidget(self.summary_card)
 
         self.progress = QLabel()
         self.progress.setObjectName("eyebrow")
@@ -95,6 +126,7 @@ class BookingWidget(QWidget):
         new_customer_layout.setContentsMargins(0, 8, 0, 0)
         new_customer_layout.setSpacing(10)
         self.name_input = self._line_edit("Guest name")
+        self.name_input.textChanged.connect(self._refresh_order_summary)
         self.email_input = self._line_edit("Email address (optional)")
         new_customer_layout.addWidget(self._field("GUEST NAME", self.name_input))
         new_customer_layout.addWidget(self._field("EMAIL", self.email_input))
@@ -177,6 +209,7 @@ class BookingWidget(QWidget):
 
         self.table_combo = QComboBox()
         self.table_combo.setMinimumHeight(42)
+        self.table_combo.currentIndexChanged.connect(self._refresh_order_summary)
         self.table_field = self._field("AVAILABLE TABLE", self.table_combo)
         content.addWidget(self.table_field)
         content.addStretch()
@@ -274,6 +307,46 @@ class BookingWidget(QWidget):
         content.addWidget(card, 1)
         return page, card_layout
 
+    def _summary_value(self, parent_layout, label, value):
+        wrapper = QWidget()
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        caption = QLabel(label)
+        caption.setObjectName("summaryCaption")
+        value_label = QLabel(value)
+        value_label.setObjectName("summaryValue")
+        value_label.setWordWrap(True)
+        layout.addWidget(caption)
+        layout.addWidget(value_label)
+        parent_layout.addWidget(wrapper, 1)
+        return value_label
+
+    def _refresh_order_summary(self):
+        guest_name = self.customer.get("customer_name") if self.customer else None
+        if not guest_name and hasattr(self, "name_input"):
+            guest_name = self.name_input.text().strip()
+        guest_name = guest_name or "Not selected"
+        item_count = sum(item["quantity"] for item in self.cart)
+        _, total = calculate_bill(self.cart)
+        self.summary_guest.setText(guest_name)
+        self.summary_items.setText(
+            f"{item_count} item{'s' if item_count != 1 else ''}"
+        )
+        order_type = self.order_type_combo.currentData()
+        if order_type == "dine_in":
+            service = (
+                self.table_combo.currentText()
+                if self.table_combo.currentData() is not None
+                else "Dine-in"
+            )
+        elif order_type == "takeaway":
+            service = "Takeaway"
+        else:
+            service = "Not selected"
+        self.summary_service.setText(service)
+        self.summary_total.setText(f"₹{float(total):,.2f}")
+
     def _footer(self, back_label, next_label, back_callback, next_callback):
         footer = QHBoxLayout()
         back = self._button(back_label, "textButton")
@@ -304,7 +377,7 @@ class BookingWidget(QWidget):
         return field
 
     def _button(self, text, object_name):
-        button = QPushButton(text)
+        button = PremiumButton(text)
         button.setObjectName(object_name)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         return button
@@ -315,6 +388,23 @@ class BookingWidget(QWidget):
         self.progress.setText(
             f"STEP {index + 1} OF {len(labels)}   ·   {labels[index]}"
         )
+        self.step_progress.setValue(index + 1)
+        for step_index, step_label in enumerate(self.step_labels):
+            step_label.setProperty("active", step_index == index)
+            step_label.setProperty("complete", step_index < index)
+            step_label.setAccessibleName(
+                f"Step {step_index + 1}: {labels[step_index]}"
+            )
+            step_label.setAccessibleDescription(
+                "Current step"
+                if step_index == index
+                else "Complete"
+                if step_index < index
+                else "Not started"
+            )
+            step_label.style().unpolish(step_label)
+            step_label.style().polish(step_label)
+        self._refresh_order_summary()
 
     def _lookup_customer(self):
         phone = self.phone_input.text().strip()
@@ -340,6 +430,7 @@ class BookingWidget(QWidget):
             self.customer_status.setText(
                 "New guest. Enter a name to continue; email is optional."
             )
+        self._refresh_order_summary()
 
     def _continue_from_customer(self):
         phone = self.phone_input.text().strip()
@@ -359,6 +450,7 @@ class BookingWidget(QWidget):
                 "phone": phone,
                 "email": self.email_input.text().strip() or None,
             }
+            self._refresh_order_summary()
         self._load_menu()
 
     def _load_menu(self):
@@ -446,6 +538,7 @@ class BookingWidget(QWidget):
         self.table_field.setVisible(is_dine_in)
         if is_dine_in:
             self._load_available_tables()
+        self._refresh_order_summary()
 
     def _load_available_tables(self):
         try:
@@ -476,6 +569,7 @@ class BookingWidget(QWidget):
             self._warning("Choose dine-in or takeaway before continuing.")
             return
         self.table_id = None
+        self._refresh_order_summary()
         if self.order_type == "dine_in":
             if not self.tables:
                 if not self._load_available_tables():
@@ -525,6 +619,7 @@ class BookingWidget(QWidget):
             self.order_summary.setText(f"{service}  ·  {table_name}  ·  {employee}")
         else:
             self.order_summary.setText(f"{service}  ·  {employee}")
+        self._refresh_order_summary()
         self.bill_total.setText(f"Total  ·  ₹{float(total):.2f}")
         self.payment_complete.setChecked(False)
         self._show_stage(4)
@@ -584,6 +679,7 @@ class BookingWidget(QWidget):
         self.customer_status.setText(
             "Look up a returning guest or register a new one."
         )
+        self._refresh_order_summary()
 
     def _reset(self):
         self.customer = None
@@ -605,6 +701,7 @@ class BookingWidget(QWidget):
         self.cart_table.setRowCount(0)
         self.cart_note.setText("Your cart is empty.")
         self.cart_total.setText("Cart total  ·  ₹0.00")
+        self._refresh_order_summary()
         self.order_type_combo.setCurrentIndex(0)
         self.table_combo.clear()
         self.employee_combo.clear()

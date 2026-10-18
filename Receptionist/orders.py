@@ -39,6 +39,71 @@ def get_employee_dashboard_stats():
             cursor.close()
 
 
+def get_active_orders():
+    """Return active orders with their customer, service, and item details."""
+    connection = get_connection()
+    cursor = None
+    try:
+        connection.commit()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                o.order_id,
+                o.order_date,
+                o.order_status,
+                o.order_type,
+                o.total_amount,
+                c.customer_name,
+                c.phone AS customer_phone,
+                e.employee_name,
+                t.table_number,
+                COALESCE(mi.item_name, CONCAT('Item #', oi.item_id)) AS item_name,
+                oi.quantity,
+                oi.unit_price
+            FROM orders AS o
+            LEFT JOIN customers AS c ON c.customer_id = o.customer_id
+            LEFT JOIN employees AS e ON e.employee_id = o.employee_id
+            LEFT JOIN cafe_tables AS t ON t.table_id = o.table_id
+            LEFT JOIN order_items AS oi ON oi.order_id = o.order_id
+            LEFT JOIN menu_items AS mi ON mi.item_id = oi.item_id
+            WHERE o.order_status NOT IN ('completed', 'cancelled')
+            ORDER BY o.order_date DESC, o.order_id DESC
+            """
+        )
+        rows = cursor.fetchall()
+        connection.commit()
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+    orders_by_id = {}
+    for row in rows:
+        order_id = row["order_id"]
+        if order_id not in orders_by_id:
+            orders_by_id[order_id] = {
+                "order_id": order_id,
+                "order_date": row["order_date"],
+                "order_status": row["order_status"],
+                "order_type": row["order_type"],
+                "total_amount": row["total_amount"],
+                "customer_name": row["customer_name"],
+                "customer_phone": row["customer_phone"],
+                "employee_name": row["employee_name"],
+                "table_number": row["table_number"],
+                "items": [],
+            }
+        if row["item_name"] is not None:
+            orders_by_id[order_id]["items"].append(
+                {
+                    "item_name": row["item_name"],
+                    "quantity": row["quantity"],
+                    "unit_price": row["unit_price"],
+                }
+            )
+    return list(orders_by_id.values())
+
+
 def get_available_cafe_tables():
     """Return available café tables for dine-in orders."""
     connection = get_connection()

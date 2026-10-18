@@ -176,6 +176,39 @@ def get_revenue_by_day(start_date: date, end_date: date):
             cursor.close()
 
 
+def get_category_sales(start_date: date, end_date: date):
+    if start_date > end_date:
+        raise ValueError("Start date must be on or before end date.")
+
+    connection = get_connection()
+    cursor = None
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(c.category_name, 'Uncategorized') AS category_name,
+                COALESCE(SUM(oi.quantity), 0) AS items_sold,
+                COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS category_revenue
+            FROM orders AS o
+            INNER JOIN order_items AS oi ON oi.order_id = o.order_id
+            LEFT JOIN menu_items AS mi ON mi.item_id = oi.item_id
+            LEFT JOIN categories AS c ON c.category_id = mi.category_id
+            WHERE DATE(o.order_date) BETWEEN %s AND %s
+              AND o.order_status != 'cancelled'
+            GROUP BY c.category_id, c.category_name
+            ORDER BY category_revenue DESC, category_name
+            """,
+            (start_date, end_date),
+        )
+        rows = cursor.fetchall()
+        connection.commit()
+        return rows
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+
 def get_employee_bill_counts(start_date: date, end_date: date):
     if start_date > end_date:
         raise ValueError("Start date must be on or before end date.")
@@ -195,6 +228,7 @@ def get_employee_bill_counts(start_date: date, end_date: date):
             LEFT JOIN orders AS o
               ON o.employee_id = e.employee_id
              AND DATE(o.order_date) BETWEEN %s AND %s
+             AND o.order_status != 'cancelled'
             GROUP BY e.employee_id, e.employee_name
             ORDER BY bill_count DESC, e.employee_name
             """,
