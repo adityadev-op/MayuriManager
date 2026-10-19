@@ -81,12 +81,24 @@ class PremiumButtonTests(unittest.TestCase):
         self.assertEqual(finished_calls, [True])
         splash.close()
 
+    def test_startup_video_and_login_share_the_main_window(self):
+        window = MainWindow()
+        window.show_startup_video()
+
+        self.assertIs(window.stack.currentWidget(), window.startup_page)
+        self.assertIs(window.startup_page.window(), window)
+        self.assertFalse(window.startup_page.isWindow())
+
+        window.startup_page.finished.emit()
+        self.assertIs(window.stack.currentWidget(), window.auth_page)
+        window.close()
+
     def test_startup_splash_can_be_skipped_with_escape(self):
         splash = StartupSplash()
         finished_calls = []
         splash.finished.connect(lambda: finished_calls.append(True))
 
-        QTest.keyClick(splash, Qt.Key.Key_Escape)
+        QTest.keyClick(splash.video_widget, Qt.Key.Key_Escape)
 
         self.assertEqual(finished_calls, [True])
         splash.close()

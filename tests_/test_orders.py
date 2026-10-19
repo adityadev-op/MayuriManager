@@ -146,7 +146,6 @@ class ReceptionistFlowTests(unittest.TestCase):
         with (
             patch("PySide6.QtWidgets.QApplication") as application_class,
             patch("gui.main_window.MainWindow") as window_class,
-            patch("gui.startup_splash.StartupSplash") as splash_class,
             patch("Database_.connection.get_connection") as connect_database,
         ):
             application = application_class.return_value
@@ -158,13 +157,8 @@ class ReceptionistFlowTests(unittest.TestCase):
         application_class.assert_called_once_with([])
         application.setApplicationName.assert_called_once_with("MAYURICAFE")
         connect_database.assert_not_called()
-        splash = splash_class.return_value
-        splash.showFullScreen.assert_called_once_with()
-        window_class.return_value.show.assert_not_called()
-        splash.finished.connect.assert_called_once()
-        splash.finished.connect.call_args.args[0]()
+        window_class.return_value.show_startup_video.assert_called_once_with()
         window_class.return_value.show.assert_called_once_with()
-        splash.close.assert_called_once_with()
         application.exec.assert_called_once_with()
 
     def test_cli_runs_customer_order_and_billing_flow(self):

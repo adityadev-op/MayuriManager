@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 
 from Database_ import connection
 from gui.main_window import MainWindow
-from gui.startup_splash import StartupSplash
 
 
 def main():
@@ -18,14 +17,8 @@ def main():
     app.aboutToQuit.connect(connection.close_database_connection)
 
     window = MainWindow()
-    splash = StartupSplash()
-
-    def open_login_page():
-        window.show()
-        splash.close()
-
-    splash.finished.connect(open_login_page)
-    splash.showFullScreen()
+    window.show_startup_video()
+    window.show()
     return app.exec()
 
 

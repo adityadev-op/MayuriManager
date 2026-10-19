@@ -17,7 +17,8 @@ creates a PDF receipt for each successfully saved paid order.
 - Admin console with a sales dashboard, menu item creation, database browser,
   sales details, revenue reports, employee bill reports, and employee login
   history with session durations.
-- Full-screen MAYURICAFE opening video followed by the existing login page.
+- MAYURICAFE opening video in the main app window, followed by the existing
+  login page.
 - Branded login page and shared MAYURICAFE logo.
 - PDF bills saved to `bills/MAYURICAFE_bill_<order_id>.pdf`.
 
@@ -117,11 +118,11 @@ From the repository root with the virtual environment active:
 python app.py
 ```
 
-The bundled `gui/assets/opening_video.mp4` plays full-screen when the app
-starts. When it finishes, the existing authentication page opens; press
-Escape or click the video to skip it. The database connection is established
-after a successful sign-in. If playback is unavailable, the error is logged
-and the app continues to authentication.
+The bundled `gui/assets/opening_video.mp4` plays in the main app window when
+the app starts. When it finishes, the existing authentication page replaces
+the video; press Escape or click the video to skip it. The database connection
+is established after a successful sign-in. If playback is unavailable, the
+error is logged and the app continues to authentication.
 
 ## PDF bills
 

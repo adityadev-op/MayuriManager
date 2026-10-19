@@ -29,6 +29,7 @@ from gui.admin import AdminWidget
 from gui.authentication import AuthenticationWidget
 from gui.booking import BookingWidget
 from gui.order_management import OrderManagementWidget
+from gui.startup_splash import StartupSplash
 from gui.table_management import TableManagementWidget
 from gui.widgets import PremiumButton
 from Receptionist.orders import (
@@ -68,6 +69,10 @@ class MainWindow(QMainWindow):
         self.auth_page = AuthenticationWidget()
         self.auth_page.employee_login_requested.connect(self._login_employee)
         self.auth_page.admin_login_requested.connect(self._login_admin)
+        self.startup_page = StartupSplash()
+        self.startup_page.finished.connect(
+            lambda: self._show_page(self.auth_page)
+        )
         self.employee_page = self._build_employee_page()
         self.booking_page = self._build_booking_page()
         self.order_management_page = OrderManagementWidget(
@@ -83,6 +88,7 @@ class MainWindow(QMainWindow):
         self.admin_page = self._build_admin_page()
 
         for page in (
+            self.startup_page,
             self.auth_page,
             self.employee_page,
             self.booking_page,
@@ -100,6 +106,9 @@ class MainWindow(QMainWindow):
         self.employee_refresh_timer.setInterval(30_000)
         self.employee_refresh_timer.timeout.connect(self._auto_refresh_employee_stats)
         self.employee_refresh_timer.start()
+
+    def show_startup_video(self):
+        self._show_page(self.startup_page)
 
     def _build_topbar(self):
         bar = QWidget()
