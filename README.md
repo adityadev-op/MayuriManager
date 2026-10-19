@@ -10,19 +10,24 @@ creates a PDF receipt for each successfully saved paid order.
 - Guided dine-in and takeaway booking flow with guest, menu, table, and payment
   details. The signed-in employee is assigned automatically.
 - Live view of active orders with item, guest, service, and employee details.
+- Dedicated Order Manager sign-in with an order queue, completion action, and
+  completed-order history.
 - Table management with allocated and available table status, including manual
   table vacancy.
 - Admin console with a sales dashboard, menu item creation, database browser,
   sales details, revenue reports, employee bill reports, and employee login
   history with session durations.
+- Full-screen MAYURICAFE opening video followed by the existing login page.
 - Branded login page and shared MAYURICAFE logo.
 - PDF bills saved to `bills/MAYURICAFE_bill_<order_id>.pdf`.
 
 ## Requirements
 
 - Python 3.14 or newer.
-- MySQL Server with the `MAYURICAFE` database and application tables already
-  created.
+- Qt Multimedia support for video and audio playback (provided by
+  `PySide6-Addons` in the requirements).
+- MySQL Server 8.0.16 or newer. Create the `MAYURICAFE` schema from
+  [`database/schema.sql`](database/schema.sql) before launching.
 - The Python packages listed in [`requirements.txt`](requirements.txt).
 
 The application connects to MySQL on `localhost:3306` using the `aditya`
@@ -54,9 +59,18 @@ Install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
-The project does not include SQL migrations or database schema setup. Create
-and populate the `MAYURICAFE` database and its expected tables in MySQL before
-launching the application.
+For a fresh local installation, create the database and schema without
+importing any application data:
+
+```bash
+mysql -u your_mysql_user -p < database/schema.sql
+```
+
+Add active employee records to `employees` and configure matching employee IDs
+in `.env.employees`; credentials are intentionally not included in the
+repository. Existing databases add support for completed orders when an Order
+Manager signs in. The employee session-audit table is created automatically
+when an employee signs in.
 
 ## Configuration
 
@@ -71,7 +85,8 @@ MAYURICAFE_MYSQL_PASSWORD=your-local-mysql-password
 
 `.env.employees` contains credentials for the receptionist, cashier, and
 manager accounts. Their IDs must correspond to active employee records in
-MySQL. `.env.admins` contains the three administrator accounts. The supplied
+MySQL. This includes the Order Manager account. `.env.admins` contains the
+three administrator accounts. The supplied
 local credentials are in these ignored files; replace them with private
 passwords before sharing a machine or distributing the application.
 
@@ -85,6 +100,9 @@ MAYURICAFE_EMPLOYEE_CASHIER_ID=2
 MAYURICAFE_EMPLOYEE_MANAGER_USERNAME=...
 MAYURICAFE_EMPLOYEE_MANAGER_PASSWORD=...
 MAYURICAFE_EMPLOYEE_MANAGER_ID=10
+MAYURICAFE_EMPLOYEE_ORDER_MANAGER_USERNAME=...
+MAYURICAFE_EMPLOYEE_ORDER_MANAGER_PASSWORD=...
+MAYURICAFE_EMPLOYEE_ORDER_MANAGER_ID=11
 ```
 
 The administrator file uses `MAYURICAFE_ADMIN_<NAME>_USERNAME` and
@@ -99,8 +117,11 @@ From the repository root with the virtual environment active:
 python app.py
 ```
 
-The authentication page opens first. The database connection is established
-after a successful sign-in.
+The bundled `gui/assets/opening_video.mp4` plays full-screen when the app
+starts. When it finishes, the existing authentication page opens; press
+Escape or click the video to skip it. The database connection is established
+after a successful sign-in. If playback is unavailable, the error is logged
+and the app continues to authentication.
 
 ## PDF bills
 

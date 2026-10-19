@@ -31,7 +31,10 @@ from gui.booking import BookingWidget
 from gui.order_management import OrderManagementWidget
 from gui.table_management import TableManagementWidget
 from gui.widgets import PremiumButton
-from Receptionist.orders import get_employee_dashboard_stats
+from Receptionist.orders import (
+    ensure_completed_order_status,
+    get_employee_dashboard_stats,
+)
 from services.authentication import (
     AuthenticatedAccount,
     CredentialConfigurationError,
@@ -70,6 +73,7 @@ class MainWindow(QMainWindow):
         self.order_management_page = OrderManagementWidget(
             self._open_employee_workspace,
             self._open_table_management,
+            self._on_order_completed,
         )
         self.table_management_page = TableManagementWidget(
             self._open_employee_workspace,
@@ -441,12 +445,16 @@ class MainWindow(QMainWindow):
     def _open_employee_workspace(self):
         if not self._has_employee_access():
             return
+        self.order_management_page.set_order_manager_mode(False)
         self._refresh_employee_stats()
         self._show_page(self.employee_page)
 
     def _open_order_management(self):
-        if not self._has_employee_access():
+        if not self._has_employee_access(allow_order_manager=True):
             return
+        self.order_management_page.set_order_manager_mode(
+            self.authenticated_account.job_role == "Order Manager"
+        )
         self.order_management_page.refresh_orders()
         self._show_page(self.order_management_page)
 
@@ -572,16 +580,27 @@ class MainWindow(QMainWindow):
         self.admin_widget.load()
         self._show_page(self.admin_page)
 
-    def _has_employee_access(self):
+    def _has_employee_access(self, *, allow_order_manager=False):
         if (
             self.authenticated_account is not None
             and self.authenticated_account.account_type == "employee"
+            and (
+                allow_order_manager
+                or self.authenticated_account.job_role != "Order Manager"
+            )
         ):
             return True
         QMessageBox.warning(
             self,
             "Access denied",
-            "Sign in with an employee account to open the employee workspace.",
+            (
+                "The Order Manager account can only access order management."
+                if (
+                    self.authenticated_account is not None
+                    and self.authenticated_account.job_role == "Order Manager"
+                )
+                else "Sign in with an employee account to open the employee workspace."
+            ),
         )
         return False
 
@@ -633,6 +652,16 @@ class MainWindow(QMainWindow):
             )
             return
         if account.account_type == "employee":
+            if account.job_role == "Order Manager":
+                try:
+                    ensure_completed_order_status()
+                except Exception as error:
+                    QMessageBox.critical(
+                        self,
+                        "Order management setup failed",
+                        f"Could not enable completed orders in the database: {error}",
+                    )
+                    return
             try:
                 self._employee_login_id = employee_sessions.start_employee_login(
                     account.employee_id,
@@ -652,7 +681,12 @@ class MainWindow(QMainWindow):
         if account.account_type == "employee":
             self.employee_greeting.setText(f"Hello, {account.display_name}")
             self.booking_page.set_employee(account.employee_id, account.display_name)
-            self._open_employee_workspace()
+            if account.job_role == "Order Manager":
+                self.order_management_page.set_order_manager_mode(True)
+                self.order_management_page.refresh_orders()
+                self._show_page(self.order_management_page)
+            else:
+                self._open_employee_workspace()
         else:
             self._open_admin_workspace()
 
@@ -677,6 +711,7 @@ class MainWindow(QMainWindow):
         self.booking_page._reset()
         self.auth_page.clear_passwords()
         self.logout_button.hide()
+        self.order_management_page.set_order_manager_mode(False)
         self._show_page(self.auth_page)
         if session_error is not None:
             QMessageBox.warning(
@@ -716,6 +751,11 @@ class MainWindow(QMainWindow):
                 )
             ),
         )
+
+    def _on_order_completed(self):
+        self._refresh_employee_stats()
+        self.order_management_page.refresh_orders()
+        self.table_management_page.refresh_tables()
 
     def _show_page(self, page):
         previous_page = self.stack.currentWidget()
@@ -1385,4 +1425,12 @@ class MainWindow(QMainWindow):
             QPushButton#textButton:pressed {{ padding-top: 2px; }}
             QScrollArea {{ background: transparent; }}
             """
+        )
+        self.order_management_page.set_completion_button_theme(
+            accent=colors["accent"],
+            accent_hover=colors["accent_hover"],
+            accent_deep=colors["accent_deep"],
+            surface_alt=colors["surface_alt"],
+            border=colors["border"],
+            muted=colors["muted"],
         )

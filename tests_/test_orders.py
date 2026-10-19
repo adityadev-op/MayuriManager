@@ -57,10 +57,96 @@ class ReceptionistFlowTests(unittest.TestCase):
         self.assertEqual(database.commit.call_count, 2)
         cursor.close.assert_called_once_with()
 
+    def test_get_completed_orders_returns_only_completed_status(self):
+        cursor = unittest.mock.Mock()
+        cursor.fetchall.return_value = []
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with patch.object(orders, "get_connection", return_value=database):
+            result = orders.get_completed_orders()
+
+        self.assertEqual(result, [])
+        self.assertIn(
+            "WHERE o.order_status = 'completed'",
+            cursor.execute.call_args.args[0],
+        )
+        cursor.close.assert_called_once_with()
+
+    def test_ensure_completed_order_status_adds_supported_status_once(self):
+        cursor = unittest.mock.Mock()
+        cursor.fetchone.return_value = (
+            "(`order_status` in ('pending','preparing','served','cancelled'))",
+        )
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with patch.object(orders, "get_connection", return_value=database):
+            orders.ensure_completed_order_status()
+
+        self.assertIn("DROP CHECK chk_order_status", cursor.execute.call_args.args[0])
+        self.assertIn("'completed'", cursor.execute.call_args.args[0])
+        self.assertEqual(database.commit.call_count, 2)
+
+    def test_ensure_completed_order_status_is_idempotent(self):
+        cursor = unittest.mock.Mock()
+        cursor.fetchone.return_value = (
+            "(`order_status` in ('pending','completed'))",
+        )
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with patch.object(orders, "get_connection", return_value=database):
+            orders.ensure_completed_order_status()
+
+        cursor.execute.assert_called_once()
+        database.commit.assert_called_once_with()
+
+    def test_complete_order_updates_status_and_releases_assigned_table(self):
+        cursor = unittest.mock.Mock()
+        cursor.fetchone.return_value = {"table_id": 7}
+        cursor.rowcount = 1
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with patch.object(orders, "get_connection", return_value=database):
+            orders.complete_order(42)
+
+        self.assertEqual(cursor.execute.call_count, 3)
+        self.assertIn(
+            "UPDATE orders",
+            cursor.execute.call_args_list[1].args[0],
+        )
+        self.assertEqual(cursor.execute.call_args_list[1].args[1], (42,))
+        self.assertIn(
+            "UPDATE cafe_tables",
+            cursor.execute.call_args_list[2].args[0],
+        )
+        self.assertEqual(cursor.execute.call_args_list[2].args[1], (7,))
+        database.commit.assert_called_once_with()
+        database.rollback.assert_not_called()
+        cursor.close.assert_called_once_with()
+
+    def test_complete_order_rolls_back_if_order_is_not_open(self):
+        cursor = unittest.mock.Mock()
+        cursor.fetchone.return_value = None
+        database = unittest.mock.Mock()
+        database.cursor.return_value = cursor
+
+        with (
+            patch.object(orders, "get_connection", return_value=database),
+            self.assertRaisesRegex(ValueError, "missing, cancelled, or already completed"),
+        ):
+            orders.complete_order(42)
+
+        database.rollback.assert_called_once_with()
+        database.commit.assert_not_called()
+
     def test_app_launches_authentication_before_connecting_to_database(self):
         with (
             patch("PySide6.QtWidgets.QApplication") as application_class,
             patch("gui.main_window.MainWindow") as window_class,
+            patch("gui.startup_splash.StartupSplash") as splash_class,
             patch("Database_.connection.get_connection") as connect_database,
         ):
             application = application_class.return_value
@@ -72,7 +158,13 @@ class ReceptionistFlowTests(unittest.TestCase):
         application_class.assert_called_once_with([])
         application.setApplicationName.assert_called_once_with("MAYURICAFE")
         connect_database.assert_not_called()
+        splash = splash_class.return_value
+        splash.showFullScreen.assert_called_once_with()
+        window_class.return_value.show.assert_not_called()
+        splash.finished.connect.assert_called_once()
+        splash.finished.connect.call_args.args[0]()
         window_class.return_value.show.assert_called_once_with()
+        splash.close.assert_called_once_with()
         application.exec.assert_called_once_with()
 
     def test_cli_runs_customer_order_and_billing_flow(self):

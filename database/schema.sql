@@ -77,7 +77,7 @@ CREATE TABLE `orders` (
   CONSTRAINT `fk_order_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`customer_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_order_employee` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`),
   CONSTRAINT `fk_order_table` FOREIGN KEY (`table_id`) REFERENCES `cafe_tables` (`table_id`) ON DELETE SET NULL,
-  CONSTRAINT `chk_order_status` CHECK ((`order_status` in ('pending','preparing','served','cancelled'))),
+  CONSTRAINT `chk_order_status` CHECK ((`order_status` in ('pending','preparing','served','cancelled','completed'))),
   CONSTRAINT `chk_order_total` CHECK ((`total_amount` >= 0)),
   CONSTRAINT `chk_order_type` CHECK ((`order_type` in ('dine_in','takeaway')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

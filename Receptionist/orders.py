@@ -41,13 +41,27 @@ def get_employee_dashboard_stats():
 
 def get_active_orders():
     """Return active orders with their customer, service, and item details."""
+    return _get_orders(completed=False)
+
+
+def get_completed_orders():
+    """Return completed orders with their customer, service, and item details."""
+    return _get_orders(completed=True)
+
+
+def _get_orders(completed):
     connection = get_connection()
     cursor = None
     try:
         connection.commit()
         cursor = connection.cursor(dictionary=True)
+        status_filter = (
+            "o.order_status = 'completed'"
+            if completed
+            else "o.order_status NOT IN ('completed', 'cancelled')"
+        )
         cursor.execute(
-            """
+            f"""
             SELECT
                 o.order_id,
                 o.order_date,
@@ -67,7 +81,7 @@ def get_active_orders():
             LEFT JOIN cafe_tables AS t ON t.table_id = o.table_id
             LEFT JOIN order_items AS oi ON oi.order_id = o.order_id
             LEFT JOIN menu_items AS mi ON mi.item_id = oi.item_id
-            WHERE o.order_status NOT IN ('completed', 'cancelled')
+            WHERE {status_filter}
             ORDER BY o.order_date DESC, o.order_id DESC
             """
         )
@@ -102,6 +116,103 @@ def get_active_orders():
                 }
             )
     return list(orders_by_id.values())
+
+
+def ensure_completed_order_status():
+    """Allow the order manager to close orders in existing databases."""
+    connection = get_connection()
+    cursor = None
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT CHECK_CLAUSE
+            FROM information_schema.CHECK_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND CONSTRAINT_NAME = 'chk_order_status'
+            """
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError(
+                "The orders table is missing its chk_order_status constraint."
+            )
+        connection.commit()
+        if "completed" in row[0].casefold():
+            return
+        cursor.execute(
+            """
+            ALTER TABLE orders
+                DROP CHECK chk_order_status,
+                ADD CONSTRAINT chk_order_status CHECK (
+                    order_status IN (
+                        'pending', 'preparing', 'served', 'cancelled', 'completed'
+                    )
+                )
+            """
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+
+def complete_order(order_id):
+    """Mark an open order completed and release its allocated table."""
+    if order_id is None:
+        raise ValueError("Choose an order to complete.")
+
+    connection = get_connection()
+    cursor = None
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT table_id
+            FROM orders
+            WHERE order_id = %s
+              AND order_status NOT IN ('completed', 'cancelled')
+            FOR UPDATE
+            """,
+            (order_id,),
+        )
+        order = cursor.fetchone()
+        if order is None:
+            raise ValueError(
+                f"Order {order_id} is missing, cancelled, or already completed."
+            )
+
+        cursor.execute(
+            """
+            UPDATE orders
+            SET order_status = 'completed'
+            WHERE order_id = %s
+              AND order_status NOT IN ('completed', 'cancelled')
+            """,
+            (order_id,),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError(f"Order {order_id} could not be completed.")
+
+        if order["table_id"] is not None:
+            cursor.execute(
+                """
+                UPDATE cafe_tables
+                SET table_status = 'available'
+                WHERE table_id = %s AND table_status = 'occupied'
+                """,
+                (order["table_id"],),
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
 
 
 def get_available_cafe_tables():

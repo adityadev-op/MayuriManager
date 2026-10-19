@@ -20,6 +20,7 @@ _EMPLOYEE_ACCOUNTS = (
     ("RECEPTIONIST", "Aaray Sharma", "Receptionist"),
     ("CASHIER", "Diya Patel", "Cashier"),
     ("MANAGER", "Tara Nair", "Manager"),
+    ("ORDER_MANAGER", "Rohan Mehta", "Order Manager"),
 )
 _ADMIN_ACCOUNTS = (
     ("ADITYA", "Aditya"),

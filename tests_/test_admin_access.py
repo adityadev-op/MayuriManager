@@ -24,6 +24,9 @@ EMPLOYEE_CREDENTIALS = {
     "MAYURICAFE_EMPLOYEE_MANAGER_USERNAME": "tara",
     "MAYURICAFE_EMPLOYEE_MANAGER_PASSWORD": "manager-secret",
     "MAYURICAFE_EMPLOYEE_MANAGER_ID": "10",
+    "MAYURICAFE_EMPLOYEE_ORDER_MANAGER_USERNAME": "rohan",
+    "MAYURICAFE_EMPLOYEE_ORDER_MANAGER_PASSWORD": "order-secret",
+    "MAYURICAFE_EMPLOYEE_ORDER_MANAGER_ID": "11",
 }
 ADMIN_CREDENTIALS = {
     "MAYURICAFE_ADMIN_ADITYA_USERNAME": "aditya",
@@ -163,7 +166,40 @@ class AuthenticationTests(unittest.TestCase):
                 authenticate_employee("tara", "manager-secret").job_role,
                 "Manager",
             )
+            self.assertEqual(
+                authenticate_employee("rohan", "order-secret").job_role,
+                "Order Manager",
+            )
             self.assertIsNone(authenticate_employee("chef", "other-secret"))
+
+    def test_order_manager_login_opens_only_order_management(self):
+        window = self._create_window()
+        with (
+            patch.dict(os.environ, EMPLOYEE_CREDENTIALS, clear=True),
+            patch("gui.main_window.connection.get_connection"),
+            patch("gui.main_window.ensure_completed_order_status"),
+            patch(
+                "gui.main_window.employee_sessions.start_employee_login",
+                return_value=72,
+            ),
+            patch("gui.order_management.get_active_orders", return_value=[]),
+            patch("gui.order_management.get_completed_orders", return_value=[]),
+        ):
+            window._login_employee("rohan", "order-secret")
+
+        self.assertEqual(window.authenticated_account.job_role, "Order Manager")
+        self.assertIs(window.stack.currentWidget(), window.order_management_page)
+        self.assertTrue(window.order_management_page.can_complete_orders)
+        self.assertTrue(window.order_management_page.navigation.isHidden())
+        with (
+            patch("gui.main_window.QMessageBox.warning") as show_error,
+            patch("gui.main_window.get_employee_dashboard_stats") as load_dashboard,
+        ):
+            window._open_employee_workspace()
+        show_error.assert_called_once()
+        load_dashboard.assert_not_called()
+        with patch("gui.main_window.employee_sessions.end_employee_login"):
+            window.close()
 
     def test_incorrect_credentials_are_rejected_before_database_connection(self):
         window = self._create_window()

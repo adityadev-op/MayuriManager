@@ -3,13 +3,14 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from gui.branding import LOGO_PATH
 from gui.main_window import MainWindow
-from gui.startup_splash import StartupSplash
+from gui.startup_splash import STARTUP_VIDEO_PATH, StartupSplash
 
 
 class PremiumButtonTests(unittest.TestCase):
@@ -60,16 +61,34 @@ class PremiumButtonTests(unittest.TestCase):
         self.assertIsNotNone(window.findChild(type(window.brand_logo), "brandLogo"))
         window.close()
 
-    def test_startup_splash_animates_the_brand_logo(self):
+    def test_startup_splash_plays_the_bundled_video_and_finishes_at_end(self):
         splash = StartupSplash()
+        finished_calls = []
+        splash.finished.connect(lambda: finished_calls.append(True))
 
-        self.assertEqual(splash.logo_animation.duration(), 850)
-        self.assertEqual(splash.logo.accessibleName(), "Mayuri Cafe logo")
-        self.assertFalse(splash.logo.pixmap().isNull())
-        self.assertEqual(splash.logo_animation.endValue().width(), 300)
-        splash.show()
-        self.application.processEvents()
-        self.assertTrue(splash.logo_animation.state())
+        self.assertTrue(STARTUP_VIDEO_PATH.is_file())
+        self.assertEqual(
+            splash.video_path,
+            STARTUP_VIDEO_PATH,
+        )
+        self.assertEqual(
+            splash.player.videoOutput(),
+            splash.video_widget,
+        )
+
+        splash._on_media_status_changed(QMediaPlayer.MediaStatus.EndOfMedia)
+        splash._on_media_status_changed(QMediaPlayer.MediaStatus.EndOfMedia)
+        self.assertEqual(finished_calls, [True])
+        splash.close()
+
+    def test_startup_splash_can_be_skipped_with_escape(self):
+        splash = StartupSplash()
+        finished_calls = []
+        splash.finished.connect(lambda: finished_calls.append(True))
+
+        QTest.keyClick(splash, Qt.Key.Key_Escape)
+
+        self.assertEqual(finished_calls, [True])
         splash.close()
 
     def test_complex_panels_switch_without_widget_graphics_effects(self):
