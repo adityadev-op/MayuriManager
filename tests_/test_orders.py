@@ -57,7 +57,7 @@ class ReceptionistFlowTests(unittest.TestCase):
         self.assertEqual(database.commit.call_count, 2)
         cursor.close.assert_called_once_with()
 
-    def test_app_launches_gui(self):
+    def test_app_launches_authentication_before_connecting_to_database(self):
         with (
             patch("PySide6.QtWidgets.QApplication") as application_class,
             patch("gui.main_window.MainWindow") as window_class,
@@ -71,7 +71,7 @@ class ReceptionistFlowTests(unittest.TestCase):
         self.assertEqual(exit_code.exception.code, 0)
         application_class.assert_called_once_with([])
         application.setApplicationName.assert_called_once_with("MAYURICAFE")
-        connect_database.assert_called_once_with()
+        connect_database.assert_not_called()
         window_class.return_value.show.assert_called_once_with()
         application.exec.assert_called_once_with()
 

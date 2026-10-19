@@ -1,50 +1,39 @@
-import getpass
-from collections.abc import Callable
+import os
 
 import mysql.connector
 from mysql.connector import Error
 
 
-_database_password = None
-_password_prompt = getpass.getpass
 _database_connection = None
 
 
-def set_password_prompt(prompt: Callable[[str], str]) -> None:
-    """Set the password prompt used for future database connections."""
-    global _password_prompt
-    _password_prompt = prompt
-
-
 def connect_to_database():
-    global _database_password
+    password = os.environ.get("MAYURICAFE_MYSQL_PASSWORD")
+    if not password:
+        raise ConnectionError(
+            "Set MAYURICAFE_MYSQL_PASSWORD in the local .env file."
+        )
 
     try:
-        password = _database_password
-
-        if password is None:
-            password = _password_prompt("MySQL password for aditya: ")
-
-        connection = mysql.connector.connect(
+        database = mysql.connector.connect(
             host="localhost",
             port=3306,
             user="aditya",
             password=password,
-            database="MAYURICAFE"
+            database="MAYURICAFE",
         )
 
-        if connection.is_connected():
-            _database_password = password
+        if database.is_connected():
             print("Successfully connected to MAYURICAFE!")
-
-            cursor = connection.cursor()
-            cursor.execute("SELECT DATABASE()")
-            print("Selected database:", cursor.fetchone()[0])
-
-            cursor.close()
-            connection.commit()
-            return connection
-
+            cursor = database.cursor()
+            try:
+                cursor.execute("SELECT DATABASE()")
+                selected_database = cursor.fetchone()
+                print("Selected database:", selected_database[0])
+            finally:
+                cursor.close()
+            database.commit()
+            return database
     except Error as error:
         print("Database connection failed:", error)
 
@@ -63,21 +52,20 @@ def get_connection():
         except Error:
             _database_connection = None
 
-    connection = connect_to_database()
+    database = connect_to_database()
 
-    if connection is None:
+    if database is None:
         raise ConnectionError("Unable to connect to the MAYURICAFE database.")
 
-    _database_connection = connection
+    _database_connection = database
     return _database_connection
 
 
 def close_database_connection():
     """Close the reusable application connection during orderly shutdown."""
-    global _database_connection, _database_password
+    global _database_connection
 
-    connection = _database_connection
+    database = _database_connection
     _database_connection = None
-    _database_password = None
-    if connection is not None and connection.is_connected():
-        connection.close()
+    if database is not None and database.is_connected():
+        database.close()

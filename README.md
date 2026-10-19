@@ -6,15 +6,16 @@ creates a PDF receipt for each successfully saved paid order.
 
 ## Features
 
-- Guided dine-in and takeaway booking flow with guest, menu, table, employee,
-  and payment details.
+- Role-based sign-in for employees and administrators.
+- Guided dine-in and takeaway booking flow with guest, menu, table, and payment
+  details. The signed-in employee is assigned automatically.
 - Live view of active orders with item, guest, service, and employee details.
 - Table management with allocated and available table status, including manual
   table vacancy.
 - Admin console with a sales dashboard, menu item creation, database browser,
-  sales details, revenue reports, and employee bill reports.
-- Separate admin password gate.
-- Branded startup animation and shared MAYURICAFE logo.
+  sales details, revenue reports, employee bill reports, and employee login
+  history with session durations.
+- Branded login page and shared MAYURICAFE logo.
 - PDF bills saved to `bills/MAYURICAFE_bill_<order_id>.pdf`.
 
 ## Requirements
@@ -25,8 +26,11 @@ creates a PDF receipt for each successfully saved paid order.
 - The Python packages listed in [`requirements.txt`](requirements.txt).
 
 The application connects to MySQL on `localhost:3306` using the `aditya`
-database user. At startup, it asks for that MySQL user's password; the password
-is held only for the current application session.
+database user and reads its password from a local dotenv file.
+
+Employee sign-ins and sign-outs are recorded in the `employe_login` table,
+which the application creates automatically. The admin console shows the most
+recent 500 sessions and the elapsed duration of active sessions.
 
 ## Installation
 
@@ -56,14 +60,36 @@ launching the application.
 
 ## Configuration
 
-The admin console is disabled unless `MAYURICAFE_ADMIN_PASSWORD` is configured.
-Create a `.env` file in the repository root (it is ignored by Git) with:
+Create the following local files in the repository root. They are ignored by
+Git and must not be uploaded:
 
-```dotenv
-MAYURICAFE_ADMIN_PASSWORD=choose-a-private-password
+`.env`:
+
+```text
+MAYURICAFE_MYSQL_PASSWORD=your-local-mysql-password
 ```
 
-The MySQL password is requested separately in the application at startup.
+`.env.employees` contains credentials for the receptionist, cashier, and
+manager accounts. Their IDs must correspond to active employee records in
+MySQL. `.env.admins` contains the three administrator accounts. The supplied
+local credentials are in these ignored files; replace them with private
+passwords before sharing a machine or distributing the application.
+
+```dotenv
+MAYURICAFE_EMPLOYEE_RECEPTIONIST_USERNAME=...
+MAYURICAFE_EMPLOYEE_RECEPTIONIST_PASSWORD=...
+MAYURICAFE_EMPLOYEE_RECEPTIONIST_ID=1
+MAYURICAFE_EMPLOYEE_CASHIER_USERNAME=...
+MAYURICAFE_EMPLOYEE_CASHIER_PASSWORD=...
+MAYURICAFE_EMPLOYEE_CASHIER_ID=2
+MAYURICAFE_EMPLOYEE_MANAGER_USERNAME=...
+MAYURICAFE_EMPLOYEE_MANAGER_PASSWORD=...
+MAYURICAFE_EMPLOYEE_MANAGER_ID=10
+```
+
+The administrator file uses `MAYURICAFE_ADMIN_<NAME>_USERNAME` and
+`MAYURICAFE_ADMIN_<NAME>_PASSWORD` entries for `ADITYA`, `PUSHPRAJ`, and
+`DEEPAK`.
 
 ## Run
 
@@ -73,8 +99,8 @@ From the repository root with the virtual environment active:
 python app.py
 ```
 
-After a successful database connection, the logo splash animation plays and
-then the welcome screen opens.
+The authentication page opens first. The database connection is established
+after a successful sign-in.
 
 ## PDF bills
 

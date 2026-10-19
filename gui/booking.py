@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QProgressBar,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -20,7 +21,6 @@ from PySide6.QtWidgets import (
 from Receptionist.customers import get_customer_by_phone
 from Receptionist.orders import (
     calculate_bill,
-    get_active_employees,
     get_available_cafe_tables,
     get_available_menu_items,
     save_order,
@@ -40,7 +40,8 @@ class BookingWidget(QWidget):
         self.menu_items = []
         self.cart = []
         self.tables = []
-        self.employees = []
+        self.employee_id = None
+        self.employee_name = None
         self.order_type = None
         self.table_id = None
         self.last_bill_pdf_path = None
@@ -63,7 +64,7 @@ class BookingWidget(QWidget):
         self.step_labels = []
         step_row = QHBoxLayout()
         step_row.setSpacing(8)
-        for index, label in enumerate(("GUEST", "ORDER", "SERVICE", "TEAM", "PAYMENT")):
+        for index, label in enumerate(("GUEST", "ORDER", "SERVICE", "PAYMENT")):
             step_label = QLabel(f"{index + 1:02d}  {label}")
             step_label.setObjectName("bookingStep")
             step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -73,7 +74,7 @@ class BookingWidget(QWidget):
 
         self.step_progress = QProgressBar()
         self.step_progress.setObjectName("bookingProgress")
-        self.step_progress.setRange(0, 5)
+        self.step_progress.setRange(0, 4)
         self.step_progress.setTextVisible(False)
         self.step_progress.setFixedHeight(5)
         self.step_progress.setAccessibleName("Booking progress")
@@ -98,7 +99,6 @@ class BookingWidget(QWidget):
         self._build_customer_stage()
         self._build_menu_stage()
         self._build_service_stage()
-        self._build_employee_stage()
         self._build_payment_stage()
         layout.addWidget(self.stage_stack, 1)
         self._show_stage(0)
@@ -106,6 +106,10 @@ class BookingWidget(QWidget):
     def start(self):
         self._reset()
         self._show_stage(0)
+
+    def set_employee(self, employee_id, employee_name):
+        self.employee_id = employee_id
+        self.employee_name = employee_name
 
     def _build_customer_stage(self):
         page, content = self._stage_page("01  GUEST DETAILS")
@@ -219,7 +223,7 @@ class BookingWidget(QWidget):
         content.addLayout(
             self._footer(
                 "Back",
-                "Choose employee",
+                "Review bill",
                 lambda: self._show_stage(1),
                 self._continue_from_service,
             )
@@ -227,28 +231,8 @@ class BookingWidget(QWidget):
         self.stage_stack.addWidget(page)
         self._on_order_type_changed()
 
-    def _build_employee_stage(self):
-        page, content = self._stage_page("04  SERVICE TEAM")
-        self.employee_combo = QComboBox()
-        self.employee_combo.setMinimumHeight(42)
-        self.employee_combo.addItem("Select an employee", None)
-        content.addWidget(self._field("ASSIGNED EMPLOYEE", self.employee_combo))
-        note = QLabel("Choose the active team member handling this order.")
-        note.setObjectName("mutedNote")
-        content.addWidget(note)
-        content.addStretch()
-        content.addLayout(
-            self._footer(
-                "Back",
-                "Review bill",
-                lambda: self._show_stage(2),
-                self._continue_from_employee,
-            )
-        )
-        self.stage_stack.addWidget(page)
-
     def _build_payment_stage(self):
-        page, content = self._stage_page("05  REVIEW & PAYMENT")
+        page, content = self._stage_page("04  REVIEW & PAYMENT", scroll=True)
         self.bill_table = QTableWidget(0, 4)
         self.bill_table.setHorizontalHeaderLabels(
             ["ITEM", "QTY", "UNIT PRICE", "AMOUNT"]
@@ -288,13 +272,13 @@ class BookingWidget(QWidget):
             self._footer(
                 "Back",
                 "Save paid order",
-                lambda: self._show_stage(3),
+                lambda: self._show_stage(2),
                 self._save_booking,
             )
         )
         self.stage_stack.addWidget(page)
 
-    def _stage_page(self, label):
+    def _stage_page(self, label, scroll=False):
         page = QWidget()
         content = QVBoxLayout(page)
         content.setContentsMargins(0, 0, 0, 0)
@@ -307,7 +291,16 @@ class BookingWidget(QWidget):
         heading = QLabel(label)
         heading.setObjectName("eyebrow")
         card_layout.addWidget(heading)
-        content.addWidget(card, 1)
+        if scroll:
+            scroll_area = QScrollArea()
+            scroll_area.setObjectName("bookingReviewScrollArea")
+            scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setWidget(card)
+            content.addWidget(scroll_area, 1)
+            self.review_scroll_area = scroll_area
+        else:
+            content.addWidget(card, 1)
         return page, card_layout
 
     def _summary_value(self, parent_layout, label, value):
@@ -387,7 +380,7 @@ class BookingWidget(QWidget):
 
     def _show_stage(self, index):
         self.stage_stack.setCurrentIndex(index)
-        labels = ("GUEST", "ORDER", "SERVICE", "TEAM", "PAYMENT")
+        labels = ("GUEST", "ORDER", "SERVICE", "PAYMENT")
         self.progress.setText(
             f"STEP {index + 1} OF {len(labels)}   ·   {labels[index]}"
         )
@@ -582,27 +575,8 @@ class BookingWidget(QWidget):
                 self._warning("Choose an available table before continuing.")
                 return
 
-        try:
-            self.employees = get_active_employees()
-        except Exception as error:
-            self._error("Could not load employees", error)
-            return
-        if not self.employees:
-            self._warning("No active employees found. Add an active employee first.")
-            return
-        self.employee_combo.clear()
-        self.employee_combo.addItem("Select an employee", None)
-        for employee in self.employees:
-            self.employee_combo.addItem(
-                f"{employee['employee_name']}  ·  #{employee['employee_id']}",
-                employee["employee_id"],
-            )
-        self._show_stage(3)
-
-    def _continue_from_employee(self):
-        employee_id = self.employee_combo.currentData()
-        if employee_id is None:
-            self._warning("Select an active employee for this order.")
+        if self.employee_id is None or self.employee_name is None:
+            self._warning("Sign in with an employee account before booking.")
             return
         bill_items, total = calculate_bill(self.cart)
         self.bill_table.setRowCount(len(bill_items))
@@ -615,19 +589,23 @@ class BookingWidget(QWidget):
             )
             for column, value in enumerate(values):
                 self.bill_table.setItem(row, column, QTableWidgetItem(value))
-        employee = self.employee_combo.currentText()
         service = "Dine-in" if self.order_type == "dine_in" else "Takeaway"
         if self.order_type == "dine_in":
             table_name = self.table_combo.currentText()
-            self.order_summary.setText(f"{service}  ·  {table_name}  ·  {employee}")
+            self.order_summary.setText(
+                f"{service}  ·  {table_name}  ·  {self.employee_name}"
+            )
         else:
-            self.order_summary.setText(f"{service}  ·  {employee}")
+            self.order_summary.setText(f"{service}  ·  {self.employee_name}")
         self._refresh_order_summary()
         self.bill_total.setText(f"Total  ·  ₹{float(total):.2f}")
         self.payment_complete.setChecked(False)
-        self._show_stage(4)
+        self._show_stage(3)
 
     def _save_booking(self):
+        if self.employee_id is None or self.employee_name is None:
+            self._warning("Sign in with an employee account before booking.")
+            return
         if self.payment_method_combo.currentData() is None:
             self._warning("Choose a payment method before saving the order.")
             return
@@ -648,7 +626,7 @@ class BookingWidget(QWidget):
         try:
             order_id = save_order(
                 self.customer,
-                self.employee_combo.currentData(),
+                self.employee_id,
                 self.order_type,
                 self.cart,
                 self.payment_method_combo.currentData(),
@@ -661,11 +639,6 @@ class BookingWidget(QWidget):
         self.last_bill_pdf_path = None
         self.bill_pdf_error = None
         try:
-            selected_employee = next(
-                employee
-                for employee in self.employees
-                if employee["employee_id"] == self.employee_combo.currentData()
-            )
             table_number = next(
                 (
                     table["table_number"]
@@ -677,7 +650,7 @@ class BookingWidget(QWidget):
             self.last_bill_pdf_path = create_bill_pdf(
                 order_id,
                 self.customer,
-                selected_employee["employee_name"],
+                self.employee_name,
                 self.order_type,
                 table_number,
                 self.payment_method_combo.currentData(),
@@ -718,7 +691,6 @@ class BookingWidget(QWidget):
         self.menu_items = []
         self.cart = []
         self.tables = []
-        self.employees = []
         self.order_type = None
         self.table_id = None
         self.phone_input.clear()
@@ -735,7 +707,6 @@ class BookingWidget(QWidget):
         self._refresh_order_summary()
         self.order_type_combo.setCurrentIndex(0)
         self.table_combo.clear()
-        self.employee_combo.clear()
         self.bill_table.setRowCount(0)
         self.payment_method_combo.setCurrentIndex(0)
         self.payment_complete.setChecked(False)

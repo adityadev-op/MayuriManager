@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from Receptionist import tables
 from gui.main_window import MainWindow
 from gui.table_management import TableManagementWidget
+from services.authentication import AuthenticatedAccount
 from gui.widgets import PremiumButton
 
 
@@ -94,12 +95,10 @@ class TableManagementWidgetTests(unittest.TestCase):
     def setUp(self):
         self.dashboard_calls = []
         self.order_calls = []
-        self.admin_calls = []
         self.updated_calls = []
         self.widget = TableManagementWidget(
             lambda: self.dashboard_calls.append(True),
             lambda: self.order_calls.append(True),
-            lambda: self.admin_calls.append(True),
             lambda: self.updated_calls.append(True),
         )
 
@@ -199,10 +198,13 @@ class TableManagementWidgetTests(unittest.TestCase):
 
     def test_seat_navigation_is_wired_from_employee_workspace_and_periodic_refresh(self):
         with (
-            patch("gui.main_window.connection.set_password_prompt"),
+            patch("gui.main_window.connection.get_connection"),
             patch("gui.table_management.get_cafe_tables", return_value=[]) as fetch,
         ):
             window = MainWindow()
+            window.authenticated_account = AuthenticatedAccount(
+                "aaray", "Aaray Sharma", "employee", 1, "Receptionist"
+            )
             seats_button = next(
                 button
                 for button in window.employee_page.findChildren(PremiumButton)

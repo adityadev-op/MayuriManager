@@ -21,14 +21,12 @@ class TableManagementWidget(QWidget):
         self,
         on_dashboard,
         on_orders,
-        on_admin,
         on_tables_updated,
         parent=None,
     ):
         super().__init__(parent)
         self.on_dashboard = on_dashboard
         self.on_orders = on_orders
-        self.on_admin = on_admin
         self.on_tables_updated = on_tables_updated
         self.tables = []
         self.load_error = None
@@ -63,13 +61,9 @@ class TableManagementWidget(QWidget):
         self.orders_button.clicked.connect(self.on_orders)
         self.seats_label = QLabel("Seat management")
         self.seats_label.setObjectName("employeeNavActive")
-        self.admin_button = PremiumButton("Admin console")
-        self.admin_button.setObjectName("textButton")
-        self.admin_button.clicked.connect(self.on_admin)
         navigation.addWidget(self.dashboard_button)
         navigation.addWidget(self.orders_button)
         navigation.addWidget(self.seats_label)
-        navigation.addWidget(self.admin_button)
         navigation.addStretch()
         layout.addLayout(navigation)
 

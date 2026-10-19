@@ -1,12 +1,11 @@
 import os
 import unittest
-from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from gui.branding import LOGO_PATH
 from gui.main_window import MainWindow
@@ -20,7 +19,6 @@ class PremiumButtonTests(unittest.TestCase):
 
     def test_primary_button_remains_visible_and_changes_on_hover(self):
         window = MainWindow()
-        window.stack.setCurrentWidget(window.roles_page)
         window.show()
         self.application.processEvents()
 
@@ -46,20 +44,11 @@ class PremiumButtonTests(unittest.TestCase):
         )
         window.close()
 
-    def test_welcome_screen_has_local_navigation_and_quick_guide(self):
+    def test_authentication_page_offers_employee_and_admin_sign_in(self):
         window = MainWindow()
-        self.assertEqual(window.home_page.objectName(), "welcomePage")
-        self.assertEqual(window.enter_cafe_button.text(), "Enter Cafe")
-        self.assertEqual(window.quick_guide_button.text(), "Quick Guide")
-
-        window.enter_cafe_button.click()
-        self.assertIs(window.stack.currentWidget(), window.roles_page)
-
-        with patch("gui.main_window.QMessageBox.information") as show_guide:
-            window.quick_guide_button.click()
-        show_guide.assert_called_once()
-        self.assertIn("Employee", show_guide.call_args.args[2])
-        self.assertIn("Admin", show_guide.call_args.args[2])
+        self.assertIs(window.stack.currentWidget(), window.auth_page)
+        self.assertEqual(window.auth_page.employee_login_button.text(), "Login as Employee")
+        self.assertEqual(window.auth_page.admin_login_button.text(), "Login as Admin")
         window.close()
 
     def test_brand_logo_is_visible_in_shared_header(self):
@@ -106,43 +95,80 @@ class PremiumButtonTests(unittest.TestCase):
         window.show()
         self.application.processEvents()
 
-        window._show_page(window.roles_page)
-        self.assertIs(window.stack.currentWidget(), window.roles_page)
+        window._show_page(window.employee_page)
+        self.assertIs(window.stack.currentWidget(), window.employee_page)
         self.assertIsNotNone(window._page_animation)
-        self.assertGreater(window.roles_page.x(), 0)
-        self.assertIsNone(window.roles_page.graphicsEffect())
+        self.assertGreater(window.employee_page.x(), 0)
+        self.assertIsNotNone(window.employee_page.graphicsEffect())
         QTest.qWait(520)
-        self.assertEqual(window.roles_page.pos().x(), 0)
-        self.assertEqual(window.roles_page.pos().y(), 0)
+        self.assertEqual(window.employee_page.pos().x(), 0)
+        self.assertEqual(window.employee_page.pos().y(), 0)
+        self.assertIsNone(window.employee_page.graphicsEffect())
 
         window._show_page(window.booking_page)
         self.assertGreater(window.booking_page.x(), 0)
         window._show_page(window.admin_page)
         self.assertIs(window.stack.currentWidget(), window.admin_page)
-        QTest.qWait(520)
+        QTest.qWait(400)
         self.assertEqual(window.admin_page.pos().x(), 0)
         self.assertEqual(window.admin_page.pos().y(), 0)
-        self.assertEqual(window.roles_page.pos().x(), 0)
+        self.assertIsNone(window.admin_page.graphicsEffect())
         window.close()
 
-    def test_welcome_headline_appears_with_typewriter_animation(self):
+    def test_employee_dashboard_keeps_text_at_its_minimum_height(self):
+        window = MainWindow()
+        window.resize(1280, 820)
+        window.show()
+        window.stack.setCurrentWidget(window.employee_page)
+        self.application.processEvents()
+
+        self.assertIsInstance(window.employee_page, QScrollArea)
+        title = window.findChild(QLabel, "employeeBookingTitle")
+        description = window.findChild(QLabel, "employeeBookingDescription")
+        self.assertGreaterEqual(title.height(), title.minimumSizeHint().height())
+        self.assertGreaterEqual(
+            description.height(),
+            description.minimumSizeHint().height(),
+        )
+        self.assertGreater(window.employee_page.verticalScrollBar().maximum(), 0)
+        window.close()
+
+    def test_admin_employee_performance_rows_keep_text_readable(self):
+        window = MainWindow()
+        window.resize(1200, 768)
+        window.show()
+        window.stack.setCurrentWidget(window.admin_page)
+        self.application.processEvents()
+        rows = [
+            {
+                "employee_name": f"Employee {index}",
+                "total_billed": 500,
+                "bill_count": 6 - index,
+            }
+            for index in range(5)
+        ]
+        window.admin_widget._render_dashboard_employees(rows)
+        self.application.processEvents()
+
+        admin = window.admin_widget
+        self.assertGreater(admin.dashboard_employee_scroll.verticalScrollBar().maximum(), 0)
+        for index in range(admin.dashboard_employee_rows.count()):
+            row = admin.dashboard_employee_rows.itemAt(index).widget()
+            for label in row.findChildren(QLabel):
+                self.assertGreaterEqual(
+                    label.height(),
+                    label.minimumSizeHint().height(),
+                )
+        window.close()
+
+    def test_authentication_heading_is_ready_without_a_prelogin_splash(self):
         window = MainWindow()
         window.show()
         self.application.processEvents()
 
-        self.assertEqual(window.welcome_title.accessibleName(), "Welcome to MAYURICAFE")
-        self.assertGreaterEqual(
-            window.welcome_title.height(),
-            window.welcome_title.fontMetrics().height(),
-        )
-        QTest.qWait(180)
-        visible_text = window.welcome_title.text()
-        self.assertGreater(len(visible_text), 0)
-        self.assertLess(len(visible_text), len("Welcome to MAYURICAFE"))
-
-        QTest.qWait(1200)
-        self.assertEqual(window.welcome_title.text(), "Welcome to MAYURICAFE")
-        self.assertFalse(window._welcome_typing_timer.isActive())
+        self.assertEqual(window.stack.currentWidget(), window.auth_page)
+        title = window.auth_page.findChild(QLabel, "authTitle")
+        self.assertEqual(title.text(), "Sign in to MAYURICAFE")
         window.close()
 
     def test_theme_toggle_updates_icon_accessibility_and_welcome_theme(self):

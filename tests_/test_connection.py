@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -7,13 +8,10 @@ from Database_ import connection
 class PersistentConnectionTests(unittest.TestCase):
     def setUp(self):
         self.previous_connection = connection._database_connection
-        self.previous_password = connection._database_password
         connection._database_connection = None
-        connection._database_password = None
 
     def tearDown(self):
         connection._database_connection = self.previous_connection
-        connection._database_password = self.previous_password
 
     def test_reuses_one_connection_until_explicit_shutdown(self):
         database = Mock()
@@ -47,6 +45,33 @@ class PersistentConnectionTests(unittest.TestCase):
 
         database.ping.assert_called_once_with(reconnect=True, attempts=1, delay=0)
         connect.assert_called_once_with()
+
+    def test_connect_uses_the_password_from_environment(self):
+        database = Mock()
+        database.is_connected.return_value = True
+        cursor = database.cursor.return_value
+        cursor.fetchone.return_value = ("MAYURICAFE",)
+
+        with (
+            patch.dict(os.environ, {"MAYURICAFE_MYSQL_PASSWORD": "configured"}),
+            patch.object(
+                connection.mysql.connector, "connect", return_value=database
+            ) as connect,
+        ):
+            self.assertIs(connection.connect_to_database(), database)
+
+        self.assertEqual(connect.call_args.kwargs["password"], "configured")
+        cursor.close.assert_called_once_with()
+
+    def test_connect_reports_missing_environment_password_without_prompting(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(ConnectionError, "MAYURICAFE_MYSQL_PASSWORD"),
+            patch.object(connection.mysql.connector, "connect") as connect,
+        ):
+            connection.connect_to_database()
+
+        connect.assert_not_called()
 
 
 if __name__ == "__main__":

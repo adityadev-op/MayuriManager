@@ -11,9 +11,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLayout,
     QLineEdit,
     QMessageBox,
     QProgressBar,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
     QTableWidget,
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from admin import admin_service
 from gui.widgets import PremiumButton, RevenueChart
+from services import employee_sessions
 
 
 class AdminWidget(QWidget):
@@ -54,6 +57,7 @@ class AdminWidget(QWidget):
         self.tabs.addTab(self._build_sales_details_tab(), "Sales details")
         self.tabs.addTab(self._build_revenue_tab(), "Revenue")
         self.tabs.addTab(self._build_employee_tab(), "Employee bills")
+        self.tabs.addTab(self._build_employee_sessions_tab(), "Employee logins")
         self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
         self.refresh_timer = QTimer(self)
@@ -73,6 +77,8 @@ class AdminWidget(QWidget):
             self.load_revenue_report()
         elif self.tabs.currentIndex() == 5:
             self.load_employee_report()
+        elif self.tabs.currentIndex() == 6:
+            self.load_employee_sessions()
 
     def _refresh_visible_report(self):
         if self.isVisible():
@@ -197,9 +203,23 @@ class AdminWidget(QWidget):
         employee_header.addStretch()
         employee_header.addWidget(self.employee_range_label)
         employee_layout.addLayout(employee_header)
-        self.dashboard_employee_rows = QVBoxLayout()
+        self.dashboard_employee_scroll = QScrollArea()
+        self.dashboard_employee_scroll.setObjectName("adminPerformanceScroll")
+        self.dashboard_employee_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.dashboard_employee_scroll.setWidgetResizable(True)
+        self.dashboard_employee_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        employee_rows_container = QWidget()
+        self.dashboard_employee_rows_container = employee_rows_container
+        self.dashboard_employee_rows = QVBoxLayout(employee_rows_container)
+        self.dashboard_employee_rows.setContentsMargins(0, 0, 0, 0)
         self.dashboard_employee_rows.setSpacing(12)
-        employee_layout.addLayout(self.dashboard_employee_rows)
+        self.dashboard_employee_rows.setSizeConstraint(
+            QLayout.SizeConstraint.SetMinimumSize
+        )
+        self.dashboard_employee_scroll.setWidget(employee_rows_container)
+        employee_layout.addWidget(self.dashboard_employee_scroll, 1)
         self.dashboard_employee_empty = QLabel(
             "No employee bills in this date range."
         )
@@ -331,6 +351,7 @@ class AdminWidget(QWidget):
             employee for employee in employees if int(employee["bill_count"] or 0) > 0
         ][:5]
         self.dashboard_employee_empty.setVisible(not positive_employees)
+        self.dashboard_employee_scroll.setVisible(bool(positive_employees))
         maximum_bills = max(
             (int(employee["bill_count"]) for employee in positive_employees),
             default=1,
@@ -358,6 +379,7 @@ class AdminWidget(QWidget):
             progress.setFixedHeight(7)
             row_layout.addLayout(heading)
             row_layout.addWidget(progress)
+            row.setMinimumHeight(row_layout.sizeHint().height())
             self.dashboard_employee_rows.addWidget(row)
         self.dashboard_employee_status.setText(
             f"Showing up to {len(positive_employees)} team members by bill count."
@@ -688,6 +710,8 @@ class AdminWidget(QWidget):
             self.load_revenue_report()
         elif index == 5:
             self.load_employee_report()
+        elif index == 6:
+            self.load_employee_sessions()
 
     def load_categories(self):
         self.menu_status.setText("Loading menu categories…")
@@ -1007,6 +1031,111 @@ class AdminWidget(QWidget):
             if rows
             else "No employee bills were recorded in this date range."
         )
+
+    def _build_employee_sessions_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(12)
+
+        controls = QHBoxLayout()
+        description = QLabel(
+            "Employee sign-in times and session duration. Active sessions update on refresh."
+        )
+        description.setObjectName("mutedNote")
+        controls.addWidget(description, 1)
+        refresh = self._button("Refresh login history")
+        refresh.clicked.connect(self.load_employee_sessions)
+        controls.addWidget(refresh)
+        layout.addLayout(controls)
+
+        self.employee_sessions_table = self._table()
+        self.employee_sessions_table.setColumnCount(6)
+        self.employee_sessions_table.setHorizontalHeaderLabels(
+            ["EMPLOYEE ID", "EMPLOYEE", "ROLE", "SIGNED IN", "SIGNED OUT", "DURATION"]
+        )
+        for column in (0, 2, 3, 4, 5):
+            self.employee_sessions_table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents
+            )
+        self.employee_sessions_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.employee_sessions_view, self.employee_sessions_empty = self._table_view(
+            self.employee_sessions_table,
+            "No employee login sessions have been recorded.",
+        )
+        layout.addWidget(self.employee_sessions_view, 1)
+        self.employee_sessions_status = QLabel(
+            "Employee login history has not been loaded."
+        )
+        self.employee_sessions_status.setObjectName("mutedNote")
+        layout.addWidget(self.employee_sessions_status)
+        return page
+
+    def load_employee_sessions(self):
+        self._show_loading_state(
+            self.employee_sessions_view,
+            self.employee_sessions_empty,
+            self.employee_sessions_status,
+        )
+        try:
+            rows = employee_sessions.get_employee_login_history()
+        except Exception as error:
+            self.employee_sessions_table.setRowCount(0)
+            self._show_table_state(
+                self.employee_sessions_view,
+                self.employee_sessions_table,
+                self.employee_sessions_empty,
+                f"Employee login history unavailable: {error}",
+            )
+            self.employee_sessions_status.setText(
+                "Employee login history unavailable."
+            )
+            self._show_error("Could not load employee login history", error)
+            return
+
+        self.employee_sessions_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            logout_time = row["logout_time"]
+            values = (
+                str(row["employee_id"]),
+                str(row["employee_name"]),
+                str(row["job_role"]),
+                self._format_session_time(row["login_time"]),
+                self._format_session_time(logout_time) if logout_time else "Active",
+                self._format_session_duration(row["duration_seconds"]),
+            )
+            for column, value in enumerate(values):
+                self.employee_sessions_table.setItem(
+                    row_index, column, QTableWidgetItem(value)
+                )
+        self._show_table_state(
+            self.employee_sessions_view,
+            self.employee_sessions_table,
+            self.employee_sessions_empty,
+            "No employee login sessions have been recorded.",
+        )
+        self.employee_sessions_status.setText(
+            f"{len(rows):,} most recent employee login session(s)."
+            if rows
+            else "No employee login sessions have been recorded."
+        )
+
+    @staticmethod
+    def _format_session_time(value):
+        return value.strftime("%d %b %Y %I:%M:%S %p") if hasattr(value, "strftime") else str(value)
+
+    @staticmethod
+    def _format_session_duration(seconds):
+        total_seconds = max(0, int(seconds or 0))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours}h {minutes}m"
+        if minutes:
+            return f"{minutes}m {seconds}s"
+        return f"{seconds}s"
 
     def _show_error(self, title, error):
         QMessageBox.critical(self, title, str(error))

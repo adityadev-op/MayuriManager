@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from Receptionist import orders
 from gui.main_window import MainWindow
+from services.authentication import AuthenticatedAccount
 
 
 class EmployeeWorkspaceTests(unittest.TestCase):
@@ -44,14 +45,14 @@ class EmployeeWorkspaceTests(unittest.TestCase):
             "available_tables": 5,
             "open_orders": 3,
         }
-        with (
-            patch("gui.main_window.connection.set_password_prompt"),
-            patch(
-                "gui.main_window.get_employee_dashboard_stats",
-                return_value=stats,
-            ) as fetch_stats,
-        ):
+        with patch(
+            "gui.main_window.get_employee_dashboard_stats",
+            return_value=stats,
+        ) as fetch_stats:
             window = MainWindow()
+            window.authenticated_account = AuthenticatedAccount(
+                "aaray", "Aaray Sharma", "employee", 1, "Receptionist"
+            )
             window._open_employee_workspace()
 
         QTest.qWait(350)
@@ -70,8 +71,7 @@ class EmployeeWorkspaceTests(unittest.TestCase):
         self.assertIn("Updated", window.employee_status.text())
 
     def test_failed_stats_refresh_shows_error_and_clears_stale_values(self):
-        with patch("gui.main_window.connection.set_password_prompt"):
-            window = MainWindow()
+        window = MainWindow()
         for value in window.employee_stat_values.values():
             value.setText("9")
 
@@ -97,8 +97,7 @@ class EmployeeWorkspaceTests(unittest.TestCase):
         )
 
     def test_employee_dashboard_uses_real_counts_and_existing_actions(self):
-        with patch("gui.main_window.connection.set_password_prompt"):
-            window = MainWindow()
+        window = MainWindow()
 
         self.assertEqual(window.employee_live_badge.property("state"), "waiting")
         self.assertEqual(
@@ -120,12 +119,14 @@ class EmployeeWorkspaceTests(unittest.TestCase):
         window.close()
 
     def test_periodic_refresh_only_queries_while_employee_workspace_is_open(self):
-        with (
-            patch("gui.main_window.connection.set_password_prompt"),
-            patch("gui.main_window.get_employee_dashboard_stats") as fetch_stats,
-        ):
+        with patch(
+            "gui.main_window.get_employee_dashboard_stats"
+        ) as fetch_stats:
             window = MainWindow()
-            window.stack.setCurrentWidget(window.home_page)
+            window.authenticated_account = AuthenticatedAccount(
+                "aaray", "Aaray Sharma", "employee", 1, "Receptionist"
+            )
+            window.stack.setCurrentWidget(window.auth_page)
             window._auto_refresh_employee_stats()
             fetch_stats.assert_not_called()
 

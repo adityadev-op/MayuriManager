@@ -1,38 +1,23 @@
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 from dotenv import load_dotenv
 
 from Database_ import connection
 from gui.main_window import MainWindow
-from gui.startup_splash import StartupSplash
 
 
 def main():
-    load_dotenv(Path(__file__).resolve().parent / ".env")
+    project_root = Path(__file__).resolve().parent
+    load_dotenv(project_root / ".env")
+    load_dotenv(project_root / ".env.employees")
+    load_dotenv(project_root / ".env.admins")
     app = QApplication([])
     app.setApplicationName("MAYURICAFE")
     app.aboutToQuit.connect(connection.close_database_connection)
 
     window = MainWindow()
-    try:
-        connection.get_connection()
-    except ConnectionError as error:
-        QMessageBox.critical(
-            window,
-            "Database connection failed",
-            f"Could not connect to the MAYURICAFE database: {error}",
-        )
-        return 1
-
-    splash = StartupSplash()
-
-    def finish_startup():
-        splash.close()
-        window.show()
-
-    splash.logo_animation.finished.connect(finish_startup)
-    splash.show()
+    window.show()
     return app.exec()
 
 

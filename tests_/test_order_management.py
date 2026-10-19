@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from gui.order_management import OrderManagementWidget
 from gui.main_window import MainWindow
 from gui.widgets import PremiumButton
+from services.authentication import AuthenticatedAccount
 
 
 class OrderManagementWidgetTests(unittest.TestCase):
@@ -18,11 +19,9 @@ class OrderManagementWidgetTests(unittest.TestCase):
 
     def setUp(self):
         self.dashboard_calls = []
-        self.admin_calls = []
         self.widget = OrderManagementWidget(
             lambda: self.dashboard_calls.append(True),
             lambda: self.dashboard_calls.append("seats"),
-            lambda: self.admin_calls.append(True),
         )
 
     def test_refresh_renders_database_orders_and_search_filters_cards(self):
@@ -102,9 +101,7 @@ class OrderManagementWidgetTests(unittest.TestCase):
 
         self.widget.dashboard_button.click()
         self.widget.tables_button.click()
-        self.widget.admin_button.click()
         self.assertEqual(self.dashboard_calls, [True, "seats"])
-        self.assertEqual(self.admin_calls, [True])
 
     def test_empty_database_result_shows_honest_empty_state(self):
         with patch("gui.order_management.get_active_orders", return_value=[]):
@@ -118,10 +115,13 @@ class OrderManagementWidgetTests(unittest.TestCase):
 
     def test_employee_live_orders_action_opens_and_loads_order_screen(self):
         with (
-            patch("gui.main_window.connection.set_password_prompt"),
+            patch("gui.main_window.connection.get_connection"),
             patch("gui.order_management.get_active_orders", return_value=[]) as fetch_orders,
         ):
             window = MainWindow()
+            window.authenticated_account = AuthenticatedAccount(
+                "aaray", "Aaray Sharma", "employee", 1, "Receptionist"
+            )
             live_orders_button = next(
                 button
                 for button in window.employee_page.findChildren(PremiumButton)
@@ -135,10 +135,13 @@ class OrderManagementWidgetTests(unittest.TestCase):
 
     def test_visible_order_management_refreshes_with_dashboard_timer(self):
         with (
-            patch("gui.main_window.connection.set_password_prompt"),
+            patch("gui.main_window.connection.get_connection"),
             patch("gui.order_management.get_active_orders", return_value=[]) as fetch_orders,
         ):
             window = MainWindow()
+            window.authenticated_account = AuthenticatedAccount(
+                "aaray", "Aaray Sharma", "employee", 1, "Receptionist"
+            )
             window.stack.setCurrentWidget(window.order_management_page)
             window._auto_refresh_employee_stats()
 

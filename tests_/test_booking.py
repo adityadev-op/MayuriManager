@@ -17,6 +17,34 @@ class BookingWidgetTests(unittest.TestCase):
     def setUp(self):
         self.widget = BookingWidget()
 
+    def tearDown(self):
+        self.widget.close()
+        self.widget.deleteLater()
+        self.application.processEvents()
+
+    def test_booking_has_no_employee_selection_step(self):
+        self.assertEqual(self.widget.stage_stack.count(), 4)
+        self.assertFalse(hasattr(self.widget, "employee_combo"))
+        self.assertTrue(self.widget.review_scroll_area.widgetResizable())
+
+    def test_review_bill_uses_scroll_layout_to_prevent_content_overlap(self):
+        self.widget.resize(1000, 520)
+        self.widget.show()
+        self.application.processEvents()
+        self.widget._show_stage(3)
+        self.application.processEvents()
+
+        self.assertFalse(
+            self.widget.bill_table.geometry().intersects(
+                self.widget.order_summary.geometry()
+            )
+        )
+        self.assertFalse(
+            self.widget.order_summary.geometry().intersects(
+                self.widget.bill_total.geometry()
+            )
+        )
+
     def test_booking_flow_saves_order_without_terminal_input(self):
         customer = {
             "customer_id": 7,
@@ -28,14 +56,13 @@ class BookingWidgetTests(unittest.TestCase):
             {"item_id": 3, "item_name": "Masala Tea", "price": 30.0}
         ]
         tables = [{"table_id": 4, "table_number": 101, "capacity": 2}]
-        employees = [{"employee_id": 12, "employee_name": "Aarav"}]
         completed_orders = []
+        self.widget.set_employee(12, "Aarav")
 
         with (
             patch("gui.booking.get_customer_by_phone", return_value=customer),
             patch("gui.booking.get_available_menu_items", return_value=menu_items),
             patch("gui.booking.get_available_cafe_tables", return_value=tables),
-            patch("gui.booking.get_active_employees", return_value=employees),
             patch("gui.booking.save_order", return_value=42) as save_order,
             patch("gui.booking.create_bill_pdf", return_value=None),
             patch("builtins.input", side_effect=AssertionError("terminal input used")),
@@ -50,8 +77,6 @@ class BookingWidgetTests(unittest.TestCase):
             self.widget.order_type_combo.setCurrentIndex(1)
             self.widget.table_combo.setCurrentIndex(1)
             self.widget._continue_from_service()
-            self.widget.employee_combo.setCurrentIndex(1)
-            self.widget._continue_from_employee()
             self.widget.payment_method_combo.setCurrentIndex(1)
             self.widget.payment_complete.setChecked(True)
             self.widget._save_booking()
@@ -129,7 +154,7 @@ class BookingWidgetTests(unittest.TestCase):
             {"item_id": 3, "item_name": "Tea", "price": 30, "quantity": 1}
         ]
         self.widget.order_type = "takeaway"
-        self.widget.employee_combo.addItem("Aarav", 12)
+        self.widget.set_employee(12, "Aarav")
         self.widget.payment_method_combo.setCurrentIndex(1)
         self.widget.flow_cancelled.connect(lambda: cancelled.append(True))
 

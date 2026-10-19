@@ -1,5 +1,5 @@
 import unittest
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 import os
@@ -423,6 +423,7 @@ class AdminWidgetTests(unittest.TestCase):
             patch.object(self.widget, "load_dashboard") as load_dashboard,
             patch.object(self.widget, "load_sales_details") as load_details,
             patch.object(self.widget, "load_revenue_report") as load_revenue,
+            patch.object(self.widget, "load_employee_sessions") as load_sessions,
         ):
             self.widget.refresh_sales_reports()
             load_dashboard.assert_called_once_with()
@@ -436,6 +437,78 @@ class AdminWidgetTests(unittest.TestCase):
             load_revenue.reset_mock()
             self.widget.refresh_sales_reports()
             load_revenue.assert_called_once_with()
+            self.widget.tabs.setCurrentIndex(6)
+            load_sessions.assert_called_once_with()
+            load_sessions.reset_mock()
+            self.widget.refresh_sales_reports()
+            load_sessions.assert_called_once_with()
+
+    def test_employee_login_history_displays_duration_and_active_state(self):
+        rows = [
+            {
+                "login_id": 17,
+                "employee_id": 2,
+                "employee_name": "Diya Patel",
+                "job_role": "Cashier",
+                "login_time": datetime(2026, 10, 18, 9, 30, 0),
+                "logout_time": datetime(2026, 10, 18, 11, 45, 0),
+                "duration_seconds": 8100,
+            },
+            {
+                "login_id": 18,
+                "employee_id": 1,
+                "employee_name": "Aaray Sharma",
+                "job_role": "Receptionist",
+                "login_time": datetime(2026, 10, 18, 12, 0, 0),
+                "logout_time": None,
+                "duration_seconds": 125,
+            },
+        ]
+        with patch(
+            "gui.admin.employee_sessions.get_employee_login_history",
+            return_value=rows,
+        ):
+            self.widget.load_employee_sessions()
+
+        self.assertEqual(self.widget.employee_sessions_table.rowCount(), 2)
+        self.assertEqual(
+            self.widget.employee_sessions_table.item(0, 3).text(),
+            "18 Oct 2026 09:30:00 AM",
+        )
+        self.assertEqual(
+            self.widget.employee_sessions_table.item(0, 4).text(),
+            "18 Oct 2026 11:45:00 AM",
+        )
+        self.assertEqual(
+            self.widget.employee_sessions_table.item(0, 5).text(),
+            "2h 15m",
+        )
+        self.assertEqual(
+            self.widget.employee_sessions_table.item(1, 4).text(),
+            "Active",
+        )
+        self.assertEqual(
+            self.widget.employee_sessions_table.item(1, 5).text(),
+            "2m 5s",
+        )
+
+    def test_employee_login_history_failure_is_visible(self):
+        with (
+            patch(
+                "gui.admin.employee_sessions.get_employee_login_history",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch.object(self.widget, "_show_error") as show_error,
+        ):
+            self.widget.load_employee_sessions()
+
+        self.assertEqual(self.widget.employee_sessions_table.rowCount(), 0)
+        self.assertIn("unavailable", self.widget.employee_sessions_empty.text())
+        self.assertEqual(
+            self.widget.employee_sessions_status.text(),
+            "Employee login history unavailable.",
+        )
+        show_error.assert_called_once()
 
     def test_sales_refresh_timer_runs_every_thirty_seconds(self):
         self.assertEqual(self.widget.refresh_timer.interval(), 30_000)

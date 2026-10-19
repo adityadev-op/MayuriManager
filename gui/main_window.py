@@ -1,18 +1,23 @@
-import os
-import secrets
+from collections.abc import Callable
 from datetime import datetime
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import (
+    QEasingCurve,
+    QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
-    QSizePolicy,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -21,17 +26,27 @@ from PySide6.QtWidgets import (
 from gui.branding import LOGO_PATH
 from Database_ import connection
 from gui.admin import AdminWidget
+from gui.authentication import AuthenticationWidget
 from gui.booking import BookingWidget
 from gui.order_management import OrderManagementWidget
 from gui.table_management import TableManagementWidget
 from gui.widgets import PremiumButton
 from Receptionist.orders import get_employee_dashboard_stats
+from services.authentication import (
+    AuthenticatedAccount,
+    CredentialConfigurationError,
+    authenticate_admin,
+    authenticate_employee,
+)
+from services import employee_sessions
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        connection.set_password_prompt(self._prompt_database_password)
+        self.authenticated_account: AuthenticatedAccount | None = None
+        self._employee_login_id: int | None = None
+        self._animated_page = None
         self.is_dark = False
         self.setWindowTitle("MAYURICAFE")
         self.resize(1280, 820)
@@ -39,11 +54,6 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self._page_animation = None
-        self._welcome_typing_timer = QTimer(self)
-        self._welcome_typing_timer.setInterval(55)
-        self._welcome_typing_timer.timeout.connect(self._type_welcome_title)
-        self._welcome_title_text = "Welcome to MAYURICAFE"
-        self._welcome_title_index = 0
 
         shell = QWidget()
         shell.setObjectName("appShell")
@@ -52,26 +62,24 @@ class MainWindow(QMainWindow):
         shell_layout.setSpacing(20)
         shell_layout.addWidget(self._build_topbar())
 
-        self.home_page = self._build_home_page()
-        self.roles_page = self._build_roles_page()
+        self.auth_page = AuthenticationWidget()
+        self.auth_page.employee_login_requested.connect(self._login_employee)
+        self.auth_page.admin_login_requested.connect(self._login_admin)
         self.employee_page = self._build_employee_page()
         self.booking_page = self._build_booking_page()
         self.order_management_page = OrderManagementWidget(
             self._open_employee_workspace,
             self._open_table_management,
-            self._open_admin_workspace,
         )
         self.table_management_page = TableManagementWidget(
             self._open_employee_workspace,
             self._open_order_management,
-            self._open_admin_workspace,
             self._on_tables_updated,
         )
         self.admin_page = self._build_admin_page()
 
         for page in (
-            self.home_page,
-            self.roles_page,
+            self.auth_page,
             self.employee_page,
             self.booking_page,
             self.order_management_page,
@@ -83,7 +91,7 @@ class MainWindow(QMainWindow):
         shell_layout.addWidget(self.stack, 1)
         self.setCentralWidget(shell)
         self._apply_theme()
-        self._show_page(self.home_page)
+        self._show_page(self.auth_page)
         self.employee_refresh_timer = QTimer(self)
         self.employee_refresh_timer.setInterval(30_000)
         self.employee_refresh_timer.timeout.connect(self._auto_refresh_employee_stats)
@@ -140,225 +148,40 @@ class MainWindow(QMainWindow):
         self.theme_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.theme_button.clicked.connect(self._toggle_theme)
         layout.addWidget(self.theme_button)
+        self.logout_button = PremiumButton("Sign out")
+        self.logout_button.setObjectName("secondaryButton")
+        self.logout_button.setMinimumHeight(38)
+        self.logout_button.clicked.connect(self._logout)
+        self.logout_button.hide()
+        layout.addWidget(self.logout_button)
         return bar
 
-    def _build_home_page(self):
-        page = QWidget()
-        page.setObjectName("welcomePage")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 16, 0, 0)
-        layout.setSpacing(16)
-        layout.addStretch()
+    def _build_employee_page(self):
+        page = QScrollArea()
+        page.setObjectName("employeePageScrollArea")
+        page.setWidgetResizable(True)
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        page.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         content = QWidget()
-        content.setMaximumWidth(1040)
-        content.setMinimumWidth(760)
-        content.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Preferred,
-        )
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-
-        hero = QFrame()
-        hero.setObjectName("welcomeHero")
-        hero.setAccessibleName("MAYURICAFE welcome")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(62, 52, 62, 48)
-        hero_layout.setSpacing(16)
-        hero_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-        eyebrow = QLabel("REFINED CAFE MANAGEMENT")
-        eyebrow.setObjectName("welcomeEyebrow")
-        eyebrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title = QLabel(self._welcome_title_text)
-        title.setObjectName("welcomeTitle")
-        title.setWordWrap(True)
-        title.setMinimumWidth(620)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setAccessibleName(self._welcome_title_text)
-        title.setText("")
-        self.welcome_title = title
-        description = QLabel(
-            "A thoughtful workspace for your cafe's daily rhythm. Manage bookings "
-            "and live orders as an employee, or explore reports and performance "
-            "in the admin console."
-        )
-        description.setObjectName("welcomeDescription")
-        description.setWordWrap(True)
-        description.setMaximumWidth(760)
-        description.setMinimumWidth(620)
-        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(14)
-        actions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.enter_cafe_button = PremiumButton("Enter Cafe")
-        self.enter_cafe_button.setObjectName("primaryButton")
-        self.enter_cafe_button.setMinimumSize(190, 54)
-        self.enter_cafe_button.setAccessibleName("Enter cafe workspace")
-        self.enter_cafe_button.clicked.connect(
-            lambda: self._show_page(self.roles_page)
-        )
-        self.quick_guide_button = PremiumButton("Quick Guide")
-        self.quick_guide_button.setObjectName("secondaryButton")
-        self.quick_guide_button.setMinimumSize(170, 54)
-        self.quick_guide_button.clicked.connect(self._show_quick_guide)
-        actions.addWidget(self.enter_cafe_button)
-        actions.addWidget(self.quick_guide_button)
-
-        hero_layout.addWidget(eyebrow)
-        hero_layout.addWidget(title)
-        hero_layout.addWidget(description, alignment=Qt.AlignmentFlag.AlignHCenter)
-        hero_layout.addSpacing(6)
-        hero_layout.addLayout(actions)
-
-        content_layout.addWidget(hero)
-
-        capabilities = QHBoxLayout()
-        capabilities.setContentsMargins(24, 22, 24, 22)
-        capabilities.setSpacing(22)
-        for symbol, text in (
-            ("01", "Employee workspace"),
-            ("02", "Admin console"),
-            ("03", "Live reporting"),
-        ):
-            badge = QWidget()
-            badge_layout = QHBoxLayout(badge)
-            badge_layout.setContentsMargins(0, 0, 0, 0)
-            badge_layout.setSpacing(9)
-            marker = QLabel(symbol)
-            marker.setObjectName("capabilityMarker")
-            marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            marker.setFixedSize(28, 28)
-            label = QLabel(text)
-            label.setObjectName("capabilityLabel")
-            badge_layout.addWidget(marker)
-            badge_layout.addWidget(label)
-            capabilities.addWidget(badge, 1, Qt.AlignmentFlag.AlignCenter)
-        content_layout.addLayout(capabilities)
-
-        layout.addWidget(content, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addStretch()
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 14, 0, 0)
-        copyright_note = QLabel(
-            f"© {datetime.now().year} MAYURICAFE · Desktop cafe management"
-        )
-        copyright_note.setObjectName("welcomeCopyright")
-        footer.addWidget(copyright_note)
-        footer.addStretch()
-        footer_note = QLabel("GOOD FOOD. THOUGHTFUL SERVICE.")
-        footer_note.setObjectName("footerNote")
-        footer.addWidget(footer_note)
-        layout.addLayout(footer)
-        return page
-
-    def _show_quick_guide(self):
-        QMessageBox.information(
-            self,
-            "MAYURICAFE quick guide",
-            "Choose Enter Cafe to select a workspace.\n\n"
-            "Employee: look up a guest, add menu items, select dine-in or "
-            "takeaway, assign an employee, then review and save the paid order.\n\n"
-            "Admin: enter the admin password to manage menu items, browse "
-            "records, and review sales and revenue reports.",
-        )
-
-    def _build_roles_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 34, 0, 20)
-        layout.addStretch()
-
-        heading = QLabel("Welcome back")
-        heading.setObjectName("pageTitle")
-        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle = QLabel("Choose a workspace to get started.")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(heading)
-        layout.addWidget(subtitle)
-        layout.addSpacing(28)
-
-        cards = QHBoxLayout()
-        cards.setSpacing(18)
-        cards.addWidget(
-            self._role_card(
-                "01",
-                "Employee",
-                "Bookings, tables and service — all in one place.",
-                "Open employee workspace",
-                self._open_employee_workspace,
-            )
-        )
-        cards.addWidget(
-            self._role_card(
-                "02",
-                "Admin",
-                "A clear view of your people, menu and performance.",
-                "Open admin workspace",
-                self._open_admin_workspace,
-                subdued=True,
-            )
-        )
-        layout.addLayout(cards)
-        layout.addStretch()
-
-        back = PremiumButton("Back to welcome")
-        back.setObjectName("textButton")
-        back.setCursor(Qt.CursorShape.PointingHandCursor)
-        back.clicked.connect(lambda: self._show_page(self.home_page))
-        layout.addWidget(back, alignment=Qt.AlignmentFlag.AlignCenter)
-        return page
-
-    def _role_card(self, number, title, description, action, callback, subdued=False):
-        card = QFrame()
-        card.setObjectName("roleCard")
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        card.setMinimumHeight(300)
-        content = QVBoxLayout(card)
-        content.setContentsMargins(30, 28, 30, 28)
-        content.setSpacing(15)
-
-        number_label = QLabel(number)
-        number_label.setObjectName("cardNumber")
-        title_label = QLabel(title)
-        title_label.setObjectName("cardTitle")
-        description_label = QLabel(description)
-        description_label.setObjectName("cardDescription")
-        description_label.setWordWrap(True)
-        button = PremiumButton(action)
-        button.setObjectName("secondaryButton" if subdued else "primaryButton")
-        button.setMinimumHeight(46)
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.clicked.connect(callback)
-
-        content.addWidget(number_label)
-        content.addStretch()
-        content.addWidget(title_label)
-        content.addWidget(description_label)
-        content.addStretch()
-        content.addWidget(button)
-        return card
-
-    def _build_employee_page(self):
-        page = QWidget()
-        page.setObjectName("employeePage")
-        layout = QVBoxLayout(page)
+        content.setObjectName("employeePage")
+        page.setWidget(content)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(20)
 
         heading_row = QHBoxLayout()
-        heading_row.addWidget(
-            self._page_heading(
-                "Employee dashboard",
-                "Your service desk for the day.",
-            ),
-            1,
-        )
+        employee_heading = QWidget()
+        employee_heading_layout = QVBoxLayout(employee_heading)
+        employee_heading_layout.setContentsMargins(0, 0, 0, 0)
+        employee_heading_layout.setSpacing(2)
+        self.employee_greeting = QLabel("Employee dashboard")
+        self.employee_greeting.setObjectName("pageTitleLeft")
+        employee_subtitle = QLabel("Your service desk for the day.")
+        employee_subtitle.setObjectName("pageSubtitleLeft")
+        employee_heading_layout.addWidget(self.employee_greeting)
+        employee_heading_layout.addWidget(employee_subtitle)
+        heading_row.addWidget(employee_heading, 1)
         self.employee_live_badge = QLabel("●  WAITING FOR DATA")
         self.employee_live_badge.setObjectName("employeeLiveBadge")
         self.employee_live_badge.setProperty("state", "waiting")
@@ -386,10 +209,6 @@ class MainWindow(QMainWindow):
         tables_button.setObjectName("employeeNavButton")
         tables_button.clicked.connect(self._open_table_management)
         nav_layout.addWidget(tables_button)
-        admin_button = PremiumButton("Admin console")
-        admin_button.setObjectName("employeeNavButton")
-        admin_button.clicked.connect(self._open_admin_workspace)
-        nav_layout.addWidget(admin_button)
         nav_layout.addStretch()
         self.employee_refresh_button = PremiumButton("Refresh data")
         self.employee_refresh_button.setObjectName("secondaryButton")
@@ -425,7 +244,6 @@ class MainWindow(QMainWindow):
         self.employee_status = QLabel("Cafe information has not been refreshed yet.")
         self.employee_status.setObjectName("mutedNote")
         footer.addWidget(self.employee_status, 1)
-        footer.addWidget(self._back_button(self.roles_page))
         layout.addLayout(footer)
         return page
 
@@ -578,7 +396,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         self.admin_widget = AdminWidget()
         layout.addWidget(self.admin_widget, 1)
-        layout.addWidget(self._back_button(self.roles_page))
         return page
 
     def _page_heading(self, title, subtitle):
@@ -611,26 +428,31 @@ class MainWindow(QMainWindow):
         layout.addWidget(note_widget)
         return card
 
-    def _back_button(self, target):
-        button = PremiumButton("Back")
-        button.setObjectName("textButton")
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.clicked.connect(lambda: self._show_page(target))
-        return button
-
     def _start_booking(self):
+        if not self._has_employee_access():
+            return
+        self.booking_page.set_employee(
+            self.authenticated_account.employee_id,
+            self.authenticated_account.display_name,
+        )
         self.booking_page.start()
         self._show_page(self.booking_page)
 
     def _open_employee_workspace(self):
+        if not self._has_employee_access():
+            return
         self._refresh_employee_stats()
         self._show_page(self.employee_page)
 
     def _open_order_management(self):
+        if not self._has_employee_access():
+            return
         self.order_management_page.refresh_orders()
         self._show_page(self.order_management_page)
 
     def _open_table_management(self):
+        if not self._has_employee_access():
+            return
         self.table_management_page.refresh_tables()
         self._show_page(self.table_management_page)
 
@@ -723,6 +545,11 @@ class MainWindow(QMainWindow):
         )
 
     def _auto_refresh_employee_stats(self):
+        if (
+            self.authenticated_account is None
+            or self.authenticated_account.account_type != "employee"
+        ):
+            return
         if self.stack.currentWidget() is self.employee_page:
             self._refresh_employee_stats()
         elif self.stack.currentWidget() is self.order_management_page:
@@ -731,50 +558,147 @@ class MainWindow(QMainWindow):
             self.table_management_page.refresh_tables()
 
     def _open_admin_workspace(self):
-        admin_password = os.environ.get("MAYURICAFE_ADMIN_PASSWORD")
-        if not admin_password:
-            QMessageBox.critical(
-                self,
-                "Admin access is not configured",
-                "Set the MAYURICAFE_ADMIN_PASSWORD environment variable and "
-                "restart the application to enable admin access.",
-            )
-            return
-
-        password, accepted = QInputDialog.getText(
-            self,
-            "Admin authentication",
-            "Enter the admin password:",
-            QLineEdit.EchoMode.Password,
-        )
-        if not accepted:
-            return
-        if not secrets.compare_digest(password, admin_password):
+        if (
+            self.authenticated_account is None
+            or self.authenticated_account.account_type != "admin"
+        ):
             QMessageBox.warning(
                 self,
                 "Access denied",
-                "The admin password is incorrect.",
+                "Sign in with an admin account to open the admin console.",
             )
             return
 
         self.admin_widget.load()
         self._show_page(self.admin_page)
 
-    def _prompt_database_password(self, prompt):
-        password, accepted = QInputDialog.getText(
+    def _has_employee_access(self):
+        if (
+            self.authenticated_account is not None
+            and self.authenticated_account.account_type == "employee"
+        ):
+            return True
+        QMessageBox.warning(
             self,
-            "Database connection",
-            prompt,
-            QLineEdit.EchoMode.Password,
+            "Access denied",
+            "Sign in with an employee account to open the employee workspace.",
         )
-        if not accepted:
-            raise ConnectionError("Database password entry was cancelled.")
-        return password
+        return False
+
+    def _login_employee(self, username, password):
+        self._login(username, password, authenticate_employee)
+
+    def _login_admin(self, username, password):
+        self._login(username, password, authenticate_admin)
+
+    def _login(
+        self,
+        username: str,
+        password: str,
+        authenticate: Callable[[str, str], AuthenticatedAccount | None],
+    ):
+        self.auth_page.clear_passwords()
+        try:
+            account = authenticate(username.strip(), password)
+        except CredentialConfigurationError as error:
+            QMessageBox.critical(self, "Login is not configured", str(error))
+            return
+
+        if account is None:
+            QMessageBox.warning(
+                self,
+                "Access denied",
+                "The username or password is incorrect.",
+            )
+            return
+
+        if self._employee_login_id is not None:
+            try:
+                self._end_employee_session()
+            except Exception as error:
+                QMessageBox.critical(
+                    self,
+                    "Previous employee session is still open",
+                    f"Could not close the previous employee session: {error}",
+                )
+                return
+
+        try:
+            connection.get_connection()
+        except ConnectionError as error:
+            QMessageBox.critical(
+                self,
+                "Database connection failed",
+                f"Could not connect to the MAYURICAFE database: {error}",
+            )
+            return
+        if account.account_type == "employee":
+            try:
+                self._employee_login_id = employee_sessions.start_employee_login(
+                    account.employee_id,
+                    account.display_name,
+                    account.job_role,
+                )
+            except Exception as error:
+                QMessageBox.critical(
+                    self,
+                    "Employee session could not be recorded",
+                    f"Sign-in was stopped because the session could not be saved: {error}",
+                )
+                return
+
+        self.authenticated_account = account
+        self.logout_button.show()
+        if account.account_type == "employee":
+            self.employee_greeting.setText(f"Hello, {account.display_name}")
+            self.booking_page.set_employee(account.employee_id, account.display_name)
+            self._open_employee_workspace()
+        else:
+            self._open_admin_workspace()
+
+    def _end_employee_session(self):
+        if self._employee_login_id is None:
+            return
+        employee_sessions.end_employee_login(self._employee_login_id)
+        self._employee_login_id = None
+
+    def _logout(self):
+        session_error = None
+        if (
+            self.authenticated_account is not None
+            and self.authenticated_account.account_type == "employee"
+        ):
+            try:
+                self._end_employee_session()
+            except Exception as error:
+                session_error = error
+        self.authenticated_account = None
+        self.booking_page.set_employee(None, None)
+        self.booking_page._reset()
+        self.auth_page.clear_passwords()
+        self.logout_button.hide()
+        self._show_page(self.auth_page)
+        if session_error is not None:
+            QMessageBox.warning(
+                self,
+                "Employee session could not be closed",
+                f"The sign-out was completed, but the session remains open: {session_error}",
+            )
+
+    def closeEvent(self, event):
+        try:
+            self._end_employee_session()
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Employee session could not be closed",
+                f"The application is closing, but the session remains open: {error}",
+            )
+        super().closeEvent(event)
 
     def _booking_completed(self, order_id):
         self._refresh_employee_stats()
         self.order_management_page.refresh_orders()
-        self.admin_widget.refresh_sales_reports()
         self._show_page(self.employee_page)
         from PySide6.QtWidgets import QMessageBox
 
@@ -796,17 +720,21 @@ class MainWindow(QMainWindow):
     def _show_page(self, page):
         previous_page = self.stack.currentWidget()
         if self._page_animation is not None:
-            self._page_animation.stop()
+            animation = self._page_animation
+            animation.stop()
+            if self._animated_page is not None:
+                self._animated_page.setGraphicsEffect(None)
+                self._animated_page.move(0, 0)
             if previous_page is not None:
                 previous_page.move(0, 0)
             self._page_animation = None
+            self._animated_page = None
+            animation.deleteLater()
 
         if previous_page is page:
             return
 
         self.stack.setCurrentWidget(page)
-        if page is self.home_page and self.isVisible():
-            self._start_welcome_typing()
         if not self.isVisible() or self.stack.width() <= 0:
             page.move(0, 0)
             return
@@ -816,34 +744,35 @@ class MainWindow(QMainWindow):
             direction = 1 if self.stack.indexOf(page) > self.stack.indexOf(previous_page) else -1
         start = QPoint(direction * self.stack.width() // 8, 0)
         page.move(start)
+        opacity = QGraphicsOpacityEffect(page)
+        page.setGraphicsEffect(opacity)
 
-        animation = QPropertyAnimation(page, b"pos", self)
-        animation.setDuration(460)
-        animation.setStartValue(start)
-        animation.setEndValue(QPoint(0, 0))
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        animation.finished.connect(lambda: page.move(0, 0))
-        self._page_animation = animation
-        animation.start()
+        group = QParallelAnimationGroup(self)
+        slide = QPropertyAnimation(page, b"pos", group)
+        slide.setDuration(360)
+        slide.setStartValue(start)
+        slide.setEndValue(QPoint(0, 0))
+        slide.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        fade = QPropertyAnimation(opacity, b"opacity", group)
+        fade.setDuration(300)
+        fade.setStartValue(0.0)
+        fade.setEndValue(1.0)
+        fade.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        group.addAnimation(slide)
+        group.addAnimation(fade)
+        group.finished.connect(lambda: self._finish_page_transition(page))
+        self._page_animation = group
+        self._animated_page = page
+        group.start()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        if self.stack.currentWidget() is self.home_page:
-            self._start_welcome_typing()
-
-    def _start_welcome_typing(self):
-        self._welcome_typing_timer.stop()
-        self._welcome_title_index = 0
-        self.welcome_title.setText("")
-        self._welcome_typing_timer.start()
-
-    def _type_welcome_title(self):
-        self._welcome_title_index += 1
-        self.welcome_title.setText(
-            self._welcome_title_text[:self._welcome_title_index]
-        )
-        if self._welcome_title_index >= len(self._welcome_title_text):
-            self._welcome_typing_timer.stop()
+    def _finish_page_transition(self, page):
+        page.move(0, 0)
+        page.setGraphicsEffect(None)
+        animation = self._page_animation
+        self._page_animation = None
+        self._animated_page = None
+        if animation is not None:
+            animation.deleteLater()
 
     def _toggle_theme(self):
         self.is_dark = not self.is_dark
@@ -919,6 +848,37 @@ class MainWindow(QMainWindow):
             }}
             QStackedWidget {{
                 background: transparent;
+            }}
+            QFrame#authenticationCard {{
+                background: {colors['welcome_card']};
+                border: 1px solid {colors['welcome_gold']};
+                border-radius: 26px;
+            }}
+            QFrame#authSection {{
+                background: {colors['surface']};
+                border: 1px solid {colors['border']};
+                border-radius: 15px;
+            }}
+            QLabel#authEyebrow {{
+                color: {colors['welcome_accent']};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 2px;
+            }}
+            QLabel#authTitle {{
+                color: {colors['welcome_ink']};
+                font-family: "Noto Serif", "Georgia", "Palatino Linotype", "Times New Roman", serif;
+                font-size: 34px;
+                font-weight: 700;
+            }}
+            QLabel#authSubtitle, QLabel#authSectionDescription {{
+                color: {colors['welcome_muted']};
+            }}
+            QLabel#authSectionTitle {{
+                color: {colors['welcome_ink']};
+                font-family: "Noto Serif", "Georgia", "Palatino Linotype", "Times New Roman", serif;
+                font-size: 21px;
+                font-weight: 700;
             }}
             QWidget#employeePage {{ background: transparent; }}
             QFrame#employeeNavigation {{
@@ -1339,6 +1299,7 @@ class MainWindow(QMainWindow):
                 border: none;
                 border-radius: 10px;
                 padding: 0 18px;
+                min-height: 42px;
                 font-weight: 700;
                 letter-spacing: 0.2px;
             }}
